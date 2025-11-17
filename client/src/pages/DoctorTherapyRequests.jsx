@@ -34,10 +34,12 @@ export default function DoctorTherapyRequests() {
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <h1 className="text-xl md:text-2xl font-semibold text-white">Therapy Requests</h1>
-        <button onClick={load} className="px-3 py-2 rounded-2xl border bg-white/80 hover:bg-white transition">Refresh</button>
+        <button onClick={load} className="btn btn-outline px-6 py-3">
+          <span className="relative z-10">Refresh</span>
+        </button>
       </div>
 
-      <div className="rounded-3xl border border-white/30 bg-white/70 backdrop-blur p-4">
+      <div className="glass-strong rounded-3xl p-6">
         {loading ? (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {Array.from({ length: 6 }).map((_, i) => <div key={i} className="rounded-2xl p-4 border animate-pulse bg-white/70 h-44" />)}
@@ -47,8 +49,14 @@ export default function DoctorTherapyRequests() {
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {rows.map((r, idx) => (
-              <motion.div key={r.id} initial={{ y: 8, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: idx * 0.03 }}
-                className="group rounded-2xl border bg-white/80 hover:bg-white transition p-4 shadow-sm hover:shadow-md">
+              <motion.div
+                key={r.id}
+                initial={{ y: 8, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ delay: idx * 0.03 }}
+                className="card group rounded-2xl p-4"
+                whileHover={{ scale: 1.02, y: -4 }}
+              >
                 <div className="flex gap-3">
                   {r.user?.avatar
                     ? <img src={r.user.avatar} className="w-12 h-12 rounded-xl object-cover border" />
@@ -69,11 +77,11 @@ export default function DoctorTherapyRequests() {
 
                 <div className="mt-3 flex gap-2">
                   {r.status === "pending" ? (
-                    <button onClick={() => accept(r.id)} className="px-3 py-2 rounded-2xl border bg-emerald-600 text-white hover:bg-emerald-700">
-                      Accept
+                    <button onClick={() => accept(r.id)} className="btn btn-secondary px-6 py-3">
+                      <span className="relative z-10">Accept</span>
                     </button>
                   ) : (
-                    <span className="px-3 py-2 rounded-2xl border bg-emerald-100 text-emerald-700 text-sm">Accepted</span>
+                    <span className="px-4 py-2 rounded-2xl border-2 border-emerald-400/50 bg-emerald-500/20 text-emerald-200 text-sm font-semibold">Accepted</span>
                   )}
                 </div>
               </motion.div>

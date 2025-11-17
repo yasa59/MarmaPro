@@ -1,13 +1,16 @@
 // client/src/pages/DoctorSessionDetail.jsx
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import api from "../api/axios";
+import { getSocket } from "../lib/socket";
 
 export default function DoctorSessionDetail() {
   const { id } = useParams();
   const [row, setRow] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [connecting, setConnecting] = useState(false);
+  const socketRef = useRef(null);
 
   // editors
   const [text, setText] = useState("");
@@ -54,6 +57,60 @@ export default function DoctorSessionDetail() {
   }
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [id]);
 
+  // Socket.IO connection notification listener
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+
+    const socket = getSocket();
+    if (!socket.connected) {
+      socket.connect();
+    }
+    socketRef.current = socket;
+
+    const handleConnect = (data) => {
+      if (data.sessionId === id) {
+        // Update connection state
+        setRow((prev) => ({
+          ...prev,
+          connectionState: {
+            userReady: data.userReady,
+            doctorReady: data.doctorReady,
+            connectedAt: data.connected ? new Date() : null,
+          },
+        }));
+
+        if (data.connected) {
+          alert("🎉 Both parties are ready! You can now start the session.");
+        } else if (data.userReady) {
+          alert("✅ Patient is ready to connect!");
+        }
+      }
+    };
+
+    socket.on("session:connect", handleConnect);
+
+    return () => {
+      socket.off("session:connect", handleConnect);
+    };
+  }, [id]);
+
+  // Connect button handler
+  async function handleConnect() {
+    setConnecting(true);
+    try {
+      const { data } = await api.post(`/sessions/${id}/connect`);
+      await load(); // Reload to get updated connection state
+      if (data.message) {
+        alert(data.message);
+      }
+    } catch (e) {
+      alert(e?.response?.data?.message || e.message);
+    } finally {
+      setConnecting(false);
+    }
+  }
+
   async function accept() {
     setWorking(true);
     try {
@@ -76,13 +133,8 @@ export default function DoctorSessionDetail() {
         doctorPhonePublic,
         marmaPlan: plan,
       });
-      // optional: if you later add a separate marma endpoint, this will try but not break
-      try {
-        await api.patch(`/sessions/${id}/marma`, { marmaPlan: plan });
-      } catch { /* ignore optional */ }
-
       await load();
-      alert("Sent to patient.");
+      alert("✅ Instructions sent to patient! They will be notified.");
     } catch (e) {
       alert(e?.response?.data?.message || e.message);
     } finally {
@@ -117,10 +169,25 @@ export default function DoctorSessionDetail() {
   if (loading) return <div className="text-white">Loading…</div>;
   if (!row) return <div className="text-rose-400">Not found</div>;
 
+  // Show connect button when session is accepted
+  const canConnect = row.status === "accepted" || row.status === "intake_submitted" || row.status === "responded";
+  const connectionState = row.connectionState || { userReady: false, doctorReady: false, connectedAt: null };
+  const isConnected = connectionState.userReady && connectionState.doctorReady;
+
   return (
-    <div className="space-y-6">
+    <motion.div
+      className="space-y-6"
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5 }}
+    >
       {/* header */}
-      <div className="rounded-3xl border border-white/25 bg-gradient-to-r from-slate-900/80 to-slate-800/70 p-4 backdrop-blur">
+      <motion.div
+        className="glass-strong rounded-3xl p-6"
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.4 }}
+      >
         <div className="flex items-center gap-4">
           {row.feetPhotoUrl
             ? <img src={row.feetPhotoUrl} alt="" className="w-16 h-16 rounded-xl object-cover ring-2 ring-white/20" />
@@ -140,19 +207,61 @@ export default function DoctorSessionDetail() {
               <button
                 onClick={accept}
                 disabled={working}
-                className="ml-3 rounded-2xl bg-emerald-600 text-white hover:bg-emerald-700 px-3 py-2"
+                className="ml-3 btn btn-secondary px-6 py-3"
               >
-                {working ? "Working…" : "Accept"}
+                <span className="relative z-10">{working ? "Working…" : "Accept"}</span>
+              </button>
+            )}
+            {canConnect && (
+              <button
+                onClick={handleConnect}
+                disabled={connecting}
+                className={`ml-3 rounded-2xl px-6 py-3 font-semibold transition-all duration-300 transform hover:scale-105 active:scale-95 ${
+                  connectionState.doctorReady
+                    ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:from-emerald-500 hover:to-teal-500 shadow-lg shadow-emerald-500/30"
+                    : "bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-500 hover:to-indigo-500 shadow-lg shadow-blue-500/30"
+                } ${connecting ? "opacity-50 cursor-not-allowed" : ""}`}
+              >
+                {connecting
+                  ? "Connecting..."
+                  : connectionState.doctorReady
+                  ? "✓ Ready (Click to Cancel)"
+                  : isConnected
+                  ? "✓ Connected"
+                  : "Connect"}
               </button>
             )}
           </div>
         </div>
-      </div>
+        {/* Connection status indicator */}
+        {canConnect && (
+          <div className="mt-3 flex items-center gap-3 text-sm">
+            <div className={`px-3 py-1.5 rounded-xl ${
+              connectionState.userReady ? "bg-emerald-500/20 text-emerald-200" : "bg-slate-500/20 text-slate-300"
+            }`}>
+              Patient: {connectionState.userReady ? "Ready" : "Waiting..."}
+            </div>
+            <div className={`px-3 py-1.5 rounded-xl ${
+              connectionState.doctorReady ? "bg-emerald-500/20 text-emerald-200" : "bg-slate-500/20 text-slate-300"
+            }`}>
+              You: {connectionState.doctorReady ? "Ready" : "Not Ready"}
+            </div>
+            {isConnected && (
+              <div className="px-3 py-1.5 rounded-xl bg-emerald-600/30 text-emerald-100 font-semibold">
+                🎉 Connected!
+              </div>
+            )}
+          </div>
+        )}
+      </motion.div>
 
       {/* intake (read-only) */}
       {row.intake && (
-        <motion.div initial={{opacity:0,y:8}} animate={{opacity:1,y:0}}
-          className="rounded-3xl border border-white/20 bg-white/5 p-4">
+        <motion.div
+          initial={{opacity:0,y:8}}
+          animate={{opacity:1,y:0}}
+          className="glass rounded-3xl p-6"
+        >
           <div className="text-white font-semibold mb-2">Patient Intake</div>
           <div className="grid md:grid-cols-2 gap-3 text-white/90">
             <Info k="Full name" v={row.intake.fullName} />
@@ -194,16 +303,19 @@ export default function DoctorSessionDetail() {
           <button
             onClick={saveAll}
             disabled={working}
-            className="rounded-2xl bg-emerald-600 text-white hover:bg-emerald-700 p-3"
+            className="btn btn-secondary px-6 py-3"
           >
-            {working ? "Saving…" : "Save instructions + plan"}
+            <span className="relative z-10">{working ? "Saving…" : "Save instructions + plan"}</span>
           </button>
         </div>
       </motion.div>
 
       {/* marma plan editor */}
-      <motion.div initial={{opacity:0,y:8}} animate={{opacity:1,y:0}}
-        className="rounded-3xl border border-white/20 bg-white/5 p-4">
+      <motion.div
+        initial={{opacity:0,y:8}}
+        animate={{opacity:1,y:0}}
+        className="glass rounded-3xl p-6"
+      >
         <div className="flex items-center justify-between">
           <div className="text-white font-semibold">Marma Plan (4 points)</div>
           <button onClick={addRow} className="px-3 py-2 rounded-2xl border border-white/30 text-white hover:bg-white/10">
@@ -236,7 +348,7 @@ export default function DoctorSessionDetail() {
               />
               <button
                 onClick={()=>delRow(i)}
-                className="px-3 py-2 rounded-xl border border-rose-300/30 text-rose-100 hover:bg-rose-500/20"
+                className="px-4 py-2 rounded-xl border-2 border-rose-400/50 text-rose-200 bg-rose-500/10 hover:bg-rose-500/20 hover:border-rose-400 transition-all duration-300 transform hover:scale-105 active:scale-95"
               >
                 Del
               </button>
@@ -248,17 +360,17 @@ export default function DoctorSessionDetail() {
           <button
             onClick={saveAll}
             disabled={working}
-            className="rounded-2xl bg-indigo-600 text-white hover:bg-indigo-700 px-4 py-2"
+            className="btn btn-primary px-6 py-3"
           >
-            {working ? "Saving…" : "Save plan"}
+            <span className="relative z-10">{working ? "Saving…" : "Save plan"}</span>
           </button>
           <button
             onClick={genQR}
             disabled={!doctorPhonePublic}
-            className="rounded-2xl border border-white/30 text-white hover:bg-white/10 px-4 py-2"
+            className="btn btn-outline px-6 py-3"
             title={doctorPhonePublic ? "" : "Add a public WhatsApp phone first"}
           >
-            Generate Emergency QR
+            <span className="relative z-10">Generate Emergency QR</span>
           </button>
         </div>
 
@@ -270,7 +382,7 @@ export default function DoctorSessionDetail() {
           </div>
         )}
       </motion.div>
-    </div>
+    </motion.div>
   );
 }
 

@@ -1,16 +1,15 @@
 // client/src/components/RequestTherapyButton.jsx
-import { useState } from "react";
-import api from "../api/axios";
+import { useNavigate } from "react-router-dom";
 
 /**
  * RequestTherapyButton
- * Sends a connect / therapy request to a doctor.
+ * Navigates to the request therapy form for a doctor.
  *
  * Props:
  *  - doctorId   (required) : string
  *  - label                 : string (default "Request Therapy")
  *  - variant               : "solid" | "outline" (default "solid")
- *  - onSuccess             : () => void  (optional)
+ *  - onSuccess             : () => void  (optional, called after navigation)
  */
 export default function RequestTherapyButton({
   doctorId,
@@ -18,49 +17,35 @@ export default function RequestTherapyButton({
   variant = "solid",
   onSuccess,
 }) {
-  const [busy, setBusy] = useState(false);
+  const navigate = useNavigate();
 
-  async function handleClick() {
-    if (!doctorId || busy) return;
-    setBusy(true);
-    try {
-      await api.post("/doctors/request", { doctorId });
-      alert("Request sent to the doctor.");
-      onSuccess?.();
-    } catch (e) {
-      const msg =
-        e?.response?.data?.message ||
-        `${e?.response?.status || ""} ${e?.response?.statusText || ""}`.trim() ||
-        e.message;
-      console.error("RequestTherapyButton error:", e?.response || e);
-      alert(msg);
-    } finally {
-      setBusy(false);
-    }
+  function handleClick() {
+    if (!doctorId) return;
+    navigate(`/patient-intake/${doctorId}`);
+    onSuccess?.();
   }
 
   const base =
-    "inline-flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-semibold transition " +
-    "focus:outline-none focus:ring-2 focus:ring-sky-300/60 disabled:opacity-60 disabled:cursor-not-allowed";
+    "inline-flex items-center gap-2 rounded-2xl px-6 py-3 text-sm font-semibold transition-all duration-300 " +
+    "focus:outline-none focus:ring-2 focus:ring-blue-400/60 disabled:opacity-60 disabled:cursor-not-allowed " +
+    "relative overflow-hidden transform hover:scale-105 active:scale-95";
   const look =
     variant === "outline"
-      ? "border border-white/20 text-white/95 hover:bg-white/10 bg-white/5 backdrop-blur"
-      : "text-white bg-gradient-to-r from-sky-500 via-indigo-500 to-emerald-500 hover:opacity-90 shadow-lg shadow-sky-500/20";
+      ? "border-2 border-blue-400/50 text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 hover:border-blue-400 backdrop-blur-sm shadow-lg shadow-blue-500/20"
+      : "text-white bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-500 hover:via-indigo-500 hover:to-purple-500 shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40";
 
   return (
     <button
       onClick={handleClick}
-      disabled={!doctorId || busy}
+      disabled={!doctorId}
       className={`${base} ${look}`}
       title="Send therapy request to this doctor"
     >
       <span className="relative inline-flex">
         <span className="w-2 h-2 rounded-full bg-white/90" />
-        {!busy && (
-          <span className="absolute inline-flex w-full h-full rounded-full bg-white/60 animate-ping opacity-70" />
-        )}
+        <span className="absolute inline-flex w-full h-full rounded-full bg-white/60 animate-ping opacity-70" />
       </span>
-      {busy ? "Sending…" : label}
+      {label}
     </button>
   );
 }

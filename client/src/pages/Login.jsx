@@ -1,6 +1,7 @@
 // client/src/pages/Login.jsx
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
 import axios from "axios";            // one-off absolute call to prove connectivity
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
@@ -92,13 +93,18 @@ export default function Login() {
 
   return (
     <div className="min-h-[80vh] grid place-items-center px-4">
-      <div className="w-full max-w-md rounded-2xl border border-white/20 bg-white/10 backdrop-blur shadow-xl p-6 text-white">
+      <motion.div
+        className="w-full max-w-md glass-strong rounded-3xl p-8 text-white"
+        initial={{ opacity: 0, y: 30, scale: 0.95 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.5 }}
+      >
         <div className="mb-5 text-center">
           <h1 className="text-3xl font-extrabold tracking-tight">iMarma Therapy</h1>
-          <p className="text-white/80 mt-1">Secure login with email + OTP</p>
+          <p className="text-white/80 mt-1"></p>
           <div className="text-xs text-white/60 mt-2">
-            API base: <code>{window.__API_BASE || "(not set)"}</code>
-            <button onClick={debugPing} className="ml-2 underline">Ping /auth/health</button>
+            
+            
           </div>
         </div>
 
@@ -132,10 +138,10 @@ export default function Login() {
 
             <button
               onClick={onLogin}
-              className="w-full py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:opacity-90 transition font-semibold"
+              className="btn btn-primary w-full py-4"
               disabled={loading}
             >
-              {loading ? "Sending OTP…" : "Login"}
+              <span className="relative z-10">{loading ? "Sending OTP…" : "Login"}</span>
             </button>
 
             <p className="text-xs text-white/60 mt-3">
@@ -157,17 +163,17 @@ export default function Login() {
             <div className="flex gap-3">
               <button
                 onClick={onVerify}
-                className="flex-1 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 transition font-semibold"
+                className="btn btn-secondary flex-1 py-4"
                 disabled={loading}
               >
-                {loading ? "Verifying…" : "Verify OTP"}
+                <span className="relative z-10">{loading ? "Verifying…" : "Verify OTP"}</span>
               </button>
               <button
                 onClick={onResend}
-                className="px-4 rounded-xl border border-white/30 hover:bg-white/10 transition"
+                className="btn btn-outline px-6 py-4"
                 disabled={loading}
               >
-                Resend
+                <span className="relative z-10">Resend</span>
               </button>
             </div>
 
@@ -176,7 +182,7 @@ export default function Login() {
             </p>
           </>
         )}
-      </div>
+      </motion.div>
     </div>
   );
 }

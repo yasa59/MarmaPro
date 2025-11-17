@@ -21,11 +21,27 @@ router.get('/', verifyToken, async (req, res) => {
     const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 20));
     const items = await Notification
       .find({ recipientId: req.user.userId })
+      .populate('actorId', 'name email profilePhoto')
       .sort({ createdAt: -1 })
       .limit(limit)
       .lean();
 
-    res.json({ items });
+    // Transform items to include actor info
+    const transformed = items.map(item => ({
+      _id: item._id,
+      type: item.type,
+      message: item.message,
+      read: item.read,
+      meta: item.meta || {},
+      createdAt: item.createdAt,
+      actor: item.actorId ? {
+        name: item.actorId.name,
+        email: item.actorId.email,
+        avatar: item.actorId.profilePhoto,
+      } : null,
+    }));
+
+    res.json({ items: transformed });
   } catch (e) {
     console.error('GET /notifications error', e);
     res.status(500).json({ message: 'server_error' });

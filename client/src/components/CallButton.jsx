@@ -20,18 +20,19 @@ export default function CallButton({
     : "px-4 py-2.5";
 
   const base =
-    "rounded-2xl font-medium inline-flex items-center gap-2 transition " +
-    "focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-400";
+    "rounded-2xl font-semibold inline-flex items-center gap-2 transition-all duration-300 " +
+    "focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-400 " +
+    "relative overflow-hidden";
 
   const look =
     variant === "outline"
-      ? "border border-white/60 bg-white/30 hover:bg-white/70 backdrop-blur"
+      ? "border-2 border-blue-400/50 text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 hover:border-blue-400 backdrop-blur-sm shadow-lg shadow-blue-500/20"
       : variant === "soft"
-      ? "bg-sky-100/80 hover:bg-sky-100 text-sky-800 border border-sky-200"
-      : // primary gradient
-        "bg-gradient-to-r from-sky-500 via-indigo-500 to-emerald-500 " +
-        "hover:from-sky-600 hover:via-indigo-600 hover:to-emerald-600 " +
-        "text-white shadow-lg shadow-sky-500/20";
+      ? "bg-blue-500/20 hover:bg-blue-500/30 text-blue-200 border border-blue-400/30 backdrop-blur-sm"
+      : // primary gradient - modern design
+        "bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 " +
+        "hover:from-blue-500 hover:via-indigo-500 hover:to-purple-500 " +
+        "text-white shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40";
 
   async function start() {
     if (loading) return;

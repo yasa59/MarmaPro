@@ -1,6 +1,7 @@
 // client/src/pages/Signup.jsx
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
 import api from "../api/axios";
 
 export default function Signup() {
@@ -58,7 +59,12 @@ export default function Signup() {
 
   return (
     <div className="min-h-[80vh] grid place-items-center px-4">
-      <div className="w-full max-w-lg rounded-2xl border border-white/20 bg-white/10 backdrop-blur shadow-xl p-6 text-white">
+      <motion.div
+        className="w-full max-w-lg glass-strong rounded-3xl p-8 text-white"
+        initial={{ opacity: 0, y: 30, scale: 0.95 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.5 }}
+      >
         <div className="mb-6 text-center">
           <h1 className="text-3xl font-extrabold tracking-tight">Create Account</h1>
           <p className="text-white/80 mt-1">Join iMarma Therapy</p>
@@ -164,10 +170,10 @@ export default function Signup() {
           )}
 
           <button
-            className="w-full py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:opacity-90 transition font-semibold"
+            className="btn btn-primary w-full py-4"
             disabled={busy}
           >
-            {busy ? "Submitting…" : role === "doctor" ? "Submit for Review" : "Sign up"}
+            <span className="relative z-10">{busy ? "Submitting…" : role === "doctor" ? "Submit for Review" : "Sign up"}</span>
           </button>
 
           {role === "doctor" ? (
@@ -180,7 +186,7 @@ export default function Signup() {
             </p>
           )}
         </form>
-      </div>
+      </motion.div>
     </div>
   );
 }

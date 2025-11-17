@@ -28,9 +28,11 @@ export default function UserDashboard() {
   // --- new sections ---
   const [accepted, setAccepted] = useState([]); // list of doctors who accepted me
   const [alerts, setAlerts] = useState([]);     // notifications
+  const [drafts, setDrafts] = useState([]);      // saved intake drafts
 
   const [loadingA, setLoadingA] = useState(true);
   const [loadingN, setLoadingN] = useState(true);
+  const [loadingD, setLoadingD] = useState(true);
 
   // ---- Loaders ----
   async function loadGreetingAndLatestPhoto() {
@@ -144,11 +146,25 @@ export default function UserDashboard() {
     }
   }
 
+  async function loadDrafts() {
+    setLoadingD(true);
+    try {
+      const { data } = await api.get("/user/intake-drafts");
+      setDrafts(Array.isArray(data?.items) ? data.items : []);
+    } catch (e) {
+      console.error("loadDrafts:", e?.response || e);
+      setDrafts([]);
+    } finally {
+      setLoadingD(false);
+    }
+  }
+
   useEffect(() => {
     loadGreetingAndLatestPhoto();
     loadTopDoctors();
     loadAccepted();
     loadAlerts();
+    loadDrafts();
   }, []);
 
   return (
@@ -278,6 +294,91 @@ export default function UserDashboard() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+      </Section>
+
+      {/* Saved Intake Drafts */}
+      <Section
+        title="Saved Intake Drafts"
+        right={
+          <button
+            onClick={loadDrafts}
+            className="px-3 py-2 rounded-2xl border bg-white/80 hover:bg-white transition text-slate-800"
+          >
+            Refresh
+          </button>
+        }
+      >
+        {loadingD ? (
+          <div className="space-y-2">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="h-16 rounded-xl border animate-pulse bg-white/70" />
+            ))}
+          </div>
+        ) : drafts.length === 0 ? (
+          <div className="p-6 text-slate-600">No saved drafts. Fill out an intake form and click "Save Draft" to save it here.</div>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {drafts.map((draft) => {
+              // Handle both populated and non-populated doctorId
+              const doctor = typeof draft.doctorId === 'object' && draft.doctorId !== null 
+                ? draft.doctorId 
+                : {};
+              const doctorId = typeof draft.doctorId === 'object' && draft.doctorId !== null
+                ? draft.doctorId._id || draft.doctorId
+                : draft.doctorId;
+              
+              return (
+                <motion.div
+                  key={draft._id}
+                  initial={{ y: 8, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  className="rounded-2xl border bg-white/80 hover:bg-white transition p-4 shadow-sm hover:shadow-md"
+                >
+                  <div className="flex items-start gap-3 mb-3">
+                    {doctor.profilePhoto ? (
+                      <img src={doctor.profilePhoto} className="w-12 h-12 rounded-xl object-cover border" />
+                    ) : (
+                      <div className="w-12 h-12 rounded-xl bg-slate-200" />
+                    )}
+                    <div className="flex-1">
+                      <div className="font-semibold text-slate-900">{doctor.name || "Doctor"}</div>
+                      <div className="text-xs text-slate-600">{doctor.email || ""}</div>
+                      {doctor.specialization && (
+                        <div className="text-xs text-slate-700 mt-1">{doctor.specialization}</div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="text-xs text-slate-600 mb-2">
+                    Saved: {draft.updatedAt ? new Date(draft.updatedAt).toLocaleString() : ""}
+                  </div>
+                  <div className="flex gap-2">
+                    <Link
+                      to={`/patient-intake/${doctorId}`}
+                      className="flex-1 btn btn-primary text-center text-sm py-2"
+                    >
+                      Continue
+                    </Link>
+                    <button
+                      onClick={async () => {
+                        if (confirm("Delete this draft?")) {
+                          try {
+                            await api.delete(`/user/intake-drafts/${doctorId}`);
+                            await loadDrafts();
+                          } catch (e) {
+                            alert("Failed to delete draft");
+                          }
+                        }
+                      }}
+                      className="px-3 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </motion.div>
+              );
+            })}
           </div>
         )}
       </Section>

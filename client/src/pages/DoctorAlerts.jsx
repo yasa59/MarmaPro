@@ -1,26 +1,32 @@
 // client/src/pages/DoctorAlerts.jsx
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import api from "../api/axios";
 import CallButton from "../components/CallButton";
 
 export default function DoctorAlerts() {
+  const navigate = useNavigate();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
+  const [expandedItems, setExpandedItems] = useState(new Set());
 
   async function load() {
     setLoading(true);
     setErr("");
     try {
       const { data } = await api.get("/doctors/alerts");
-      setItems(Array.isArray(data?.items) ? data.items : []);
+      console.log("📬 Doctor alerts response:", data);
+      const items = Array.isArray(data?.items) ? data.items : [];
+      console.log(`📋 Loaded ${items.length} alerts`);
+      setItems(items);
     } catch (e) {
       const msg =
         e?.response?.data?.message ||
         `${e?.response?.status || ""} ${e?.response?.statusText || ""}`.trim() ||
         e.message;
-      console.error("Load doctor alerts failed:", e?.response || e);
+      console.error("❌ Load doctor alerts failed:", e?.response || e);
       setErr(msg);
       setItems([]);
     } finally {
@@ -85,8 +91,24 @@ export default function DoctorAlerts() {
         )}
 
         {/* Empty state */}
-        {!loading && items.length === 0 && (
-          <div className="p-8 text-slate-300 text-center">No pending requests.</div>
+        {!loading && items.length === 0 && !err && (
+          <div className="p-8 text-slate-300 text-center">
+            <div className="text-lg mb-2">No pending requests.</div>
+            <div className="text-sm text-slate-400">When patients send therapy requests, they will appear here.</div>
+          </div>
+        )}
+        
+        {err && (
+          <div className="p-8 text-rose-300 text-center">
+            <div className="text-lg mb-2">Error loading alerts</div>
+            <div className="text-sm">{err}</div>
+            <button
+              onClick={load}
+              className="mt-4 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white"
+            >
+              Retry
+            </button>
+          </div>
         )}
 
         {/* Items */}
@@ -129,6 +151,75 @@ export default function DoctorAlerts() {
                     </div>
                   </div>
 
+                  {/* Intake Form Display */}
+                  {it.intake && (
+                    <div className="mt-3">
+                      <button
+                        onClick={() => {
+                          const newExpanded = new Set(expandedItems);
+                          if (newExpanded.has(it.id)) {
+                            newExpanded.delete(it.id);
+                          } else {
+                            newExpanded.add(it.id);
+                          }
+                          setExpandedItems(newExpanded);
+                        }}
+                        className="w-full text-left px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-sm text-white/80 flex items-center justify-between"
+                      >
+                        <span>View Patient Intake Form</span>
+                        <span>{expandedItems.has(it.id) ? "▼" : "▶"}</span>
+                      </button>
+                      {expandedItems.has(it.id) && (
+                        <div className="mt-2 p-3 rounded-xl bg-slate-800/50 border border-white/10 text-sm space-y-2">
+                          <div className="grid md:grid-cols-2 gap-2">
+                            {it.intake.fullName && (
+                              <div><span className="text-white/60">Name:</span> <span className="text-white">{it.intake.fullName}</span></div>
+                            )}
+                            {it.intake.age && (
+                              <div><span className="text-white/60">Age:</span> <span className="text-white">{it.intake.age}</span></div>
+                            )}
+                            {it.intake.gender && (
+                              <div><span className="text-white/60">Gender:</span> <span className="text-white">{it.intake.gender}</span></div>
+                            )}
+                            {it.intake.livingArea && (
+                              <div><span className="text-white/60">Living Area:</span> <span className="text-white">{it.intake.livingArea}</span></div>
+                            )}
+                            {it.intake.bloodType && (
+                              <div><span className="text-white/60">Blood Type:</span> <span className="text-white">{it.intake.bloodType}</span></div>
+                            )}
+                            {it.intake.phone && (
+                              <div><span className="text-white/60">Phone:</span> <span className="text-white">{it.intake.phone}</span></div>
+                            )}
+                            {it.intake.painLocation && (
+                              <div className="md:col-span-2"><span className="text-white/60">Pain Location:</span> <span className="text-white">{it.intake.painLocation}</span></div>
+                            )}
+                            {it.intake.painDuration && (
+                              <div><span className="text-white/60">Pain Duration:</span> <span className="text-white">{it.intake.painDuration}</span></div>
+                            )}
+                            {it.intake.painSeverity && (
+                              <div><span className="text-white/60">Pain Severity:</span> <span className="text-white">{it.intake.painSeverity}</span></div>
+                            )}
+                            {it.intake.problemType && (
+                              <div><span className="text-white/60">Problem Type:</span> <span className="text-white">{it.intake.problemType}</span></div>
+                            )}
+                          </div>
+                          {it.intake.painDescription && (
+                            <div className="mt-2 pt-2 border-t border-white/10">
+                              <div className="text-white/60 mb-1">Pain Description:</div>
+                              <div className="text-white whitespace-pre-wrap">{it.intake.painDescription}</div>
+                            </div>
+                          )}
+                          {it.intake.otherNotes && (
+                            <div className="mt-2 pt-2 border-t border-white/10">
+                              <div className="text-white/60 mb-1">Additional Notes:</div>
+                              <div className="text-white whitespace-pre-wrap">{it.intake.otherNotes}</div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button
                       onClick={() => respond(it.id, "accept")}
@@ -142,6 +233,16 @@ export default function DoctorAlerts() {
                     >
                       Reject
                     </button>
+
+                    {/* Send Therapy Session button - navigates to session detail */}
+                    {it.sessionId && (
+                      <button
+                        onClick={() => navigate(`/doctor/session/${it.sessionId}`)}
+                        className="px-3 py-2 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white transition shadow-sm font-semibold"
+                      >
+                        Send Therapy Session
+                      </button>
+                    )}
 
                     {/* Optional quick connect (useful right after accepting) */}
                     {u.id && (

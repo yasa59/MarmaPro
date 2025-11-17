@@ -6,7 +6,18 @@ const SessionSchema = new mongoose.Schema({
   userId:   { type: O, ref: 'User', required: true },
   doctorId: { type: O, ref: 'User', required: true },
 
-  status: { type: String, enum: ['draft', 'active', 'completed', 'cancelled'], default: 'active' },
+  status: { 
+    type: String, 
+    enum: ['pending', 'accepted', 'intake_submitted', 'responded', 'active', 'completed', 'cancelled'], 
+    default: 'pending' 
+  },
+
+  // connection readiness state (for Connect button feature)
+  connectionState: {
+    userReady: { type: Boolean, default: false },
+    doctorReady: { type: Boolean, default: false },
+    connectedAt: { type: Date, default: null }, // when both are ready
+  },
 
   // snapshot-ish
   feetPhotoUrl: { type: String, default: null },
@@ -16,7 +27,13 @@ const SessionSchema = new mongoose.Schema({
     fullName: String,
     age: Number,
     gender: String,
-    painArea: String,
+    livingArea: String,
+    bloodType: String,
+    painDescription: String,
+    painLocation: String,
+    painDuration: String,
+    painSeverity: String,
+    painArea: String, // kept for backward compatibility
     problemType: String,
     phone: String,
     otherNotes: String,

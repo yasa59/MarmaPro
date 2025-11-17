@@ -1,7 +1,9 @@
 // client/src/pages/UserSessionDetail.jsx
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams } from "react-router-dom";
+import { motion } from "framer-motion";
 import api from "../api/axios";
+import { getSocket } from "../lib/socket";
 
 export default function UserSessionDetail() {
   const { id } = useParams();
@@ -19,9 +21,11 @@ export default function UserSessionDetail() {
     otherNotes: "",
   });
   const [saving, setSaving] = useState(false);
+  const [connecting, setConnecting] = useState(false);
 
   // per-point runner (IoT start/stop)
   const [runner, setRunner] = useState({ idx: -1, left: 0, running: false });
+  const socketRef = useRef(null);
 
   async function load() {
     setBusy(true);
@@ -45,6 +49,70 @@ export default function UserSessionDetail() {
   useEffect(() => {
     load();
   }, [id]);
+
+  // Socket.IO connection notification listener
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+
+    const socket = getSocket();
+    if (!socket.connected) {
+      socket.connect();
+    }
+    socketRef.current = socket;
+
+    const handleConnect = (data) => {
+      if (data.sessionId === id) {
+        // Update connection state
+        setRow((prev) => ({
+          ...prev,
+          connectionState: {
+            userReady: data.userReady,
+            doctorReady: data.doctorReady,
+            connectedAt: data.connected ? new Date() : null,
+          },
+        }));
+
+        if (data.connected) {
+          alert("🎉 Both parties are ready! You can now start the session.");
+        } else if (data.doctorReady) {
+          alert("✅ Doctor is ready to connect!");
+        }
+      }
+    };
+
+    const handleInstructions = (data) => {
+      if (data.sessionId === id) {
+        // Reload session data to get updated instructions
+        load();
+        alert(`📋 ${data.doctorName} has sent you therapy instructions!`);
+      }
+    };
+
+    socket.on("session:connect", handleConnect);
+    socket.on("session:instructions", handleInstructions);
+
+    return () => {
+      socket.off("session:connect", handleConnect);
+      socket.off("session:instructions", handleInstructions);
+    };
+  }, [id]);
+
+  // Connect button handler
+  async function handleConnect() {
+    setConnecting(true);
+    try {
+      const { data } = await api.post(`/sessions/${id}/connect`);
+      await load(); // Reload to get updated connection state
+      if (data.message) {
+        alert(data.message);
+      }
+    } catch (e) {
+      alert(e?.response?.data?.message || e.message);
+    } finally {
+      setConnecting(false);
+    }
+  }
 
   async function submitIntake() {
     setSaving(true);
@@ -113,11 +181,17 @@ export default function UserSessionDetail() {
   if (!row) return <div className="p-6 text-red-200">Not found.</div>;
 
   const showIntake = row.status === "accepted" && !row.intake;
-  const showInstructions =
-    !!row.instructions &&
-    (row.status === "responded" ||
-      row.status === "intake_submitted" ||
-      row.status === "accepted");
+  // Show instructions if they exist, regardless of status (they can be sent at any time after acceptance)
+  const showInstructions = !!row.instructions && (
+    row.status === "responded" ||
+    row.status === "intake_submitted" ||
+    row.status === "accepted"
+  ) && (row.instructions.text || row.instructions.meds || row.instructions.doctorPhonePublic);
+
+  // Show connect button when session is accepted (after intake or instructions)
+  const canConnect = row.status === "accepted" || row.status === "intake_submitted" || row.status === "responded";
+  const connectionState = row.connectionState || { userReady: false, doctorReady: false, connectedAt: null };
+  const isConnected = connectionState.userReady && connectionState.doctorReady;
 
   const waLink = row.instructions?.doctorPhonePublic
     ? `https://wa.me/${encodeURIComponent(
@@ -128,9 +202,19 @@ export default function UserSessionDetail() {
   const current = runner.idx >= 0 ? row.marmaPlan?.[runner.idx] : null;
 
   return (
-    <div className="space-y-6">
+    <motion.div
+      className="space-y-6"
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5 }}
+    >
       {/* header */}
-      <div className="rounded-3xl border border-white/25 bg-gradient-to-r from-slate-900/80 to-slate-800/70 p-4 backdrop-blur">
+      <motion.div
+        className="glass-strong rounded-3xl p-6"
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.4 }}
+      >
         <div className="flex items-center gap-4">
           {row.feetPhotoUrl ? (
             <img
@@ -167,13 +251,57 @@ export default function UserSessionDetail() {
                 Emergency WhatsApp
               </a>
             )}
+            {canConnect && (
+              <button
+                onClick={handleConnect}
+                disabled={connecting}
+                className={`rounded-2xl px-6 py-3 font-semibold transition-all duration-300 transform hover:scale-105 active:scale-95 ${
+                  connectionState.userReady
+                    ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:from-emerald-500 hover:to-teal-500 shadow-lg shadow-emerald-500/30"
+                    : "bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-500 hover:to-indigo-500 shadow-lg shadow-blue-500/30"
+                } ${connecting ? "opacity-50 cursor-not-allowed" : ""}`}
+              >
+                {connecting
+                  ? "Connecting..."
+                  : connectionState.userReady
+                  ? "✓ Ready (Click to Cancel)"
+                  : isConnected
+                  ? "✓ Connected"
+                  : "Connect"}
+              </button>
+            )}
           </div>
         </div>
-      </div>
+        {/* Connection status indicator */}
+        {canConnect && (
+          <div className="mt-3 flex items-center gap-3 text-sm">
+            <div className={`px-3 py-1.5 rounded-xl ${
+              connectionState.userReady ? "bg-emerald-500/20 text-emerald-200" : "bg-slate-500/20 text-slate-300"
+            }`}>
+              You: {connectionState.userReady ? "Ready" : "Not Ready"}
+            </div>
+            <div className={`px-3 py-1.5 rounded-xl ${
+              connectionState.doctorReady ? "bg-emerald-500/20 text-emerald-200" : "bg-slate-500/20 text-slate-300"
+            }`}>
+              Doctor: {connectionState.doctorReady ? "Ready" : "Waiting..."}
+            </div>
+            {isConnected && (
+              <div className="px-3 py-1.5 rounded-xl bg-emerald-600/30 text-emerald-100 font-semibold">
+                🎉 Connected!
+              </div>
+            )}
+          </div>
+        )}
+      </motion.div>
 
       {/* intake form (only when accepted and not submitted yet) */}
       {showIntake && (
-        <div className="rounded-3xl border border-white/20 bg-white/5 backdrop-blur p-4">
+        <motion.div
+          className="glass rounded-3xl p-6"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.1 }}
+        >
           <div className="text-white font-semibold mb-3">Intake Form</div>
           <div className="grid md:grid-cols-2 gap-3">
             <Input
@@ -231,85 +359,111 @@ export default function UserSessionDetail() {
             <button
               onClick={submitIntake}
               disabled={saving}
-              className="px-4 py-2.5 rounded-2xl bg-emerald-600 text-white hover:bg-emerald-700 transition"
+              className="btn btn-secondary px-6 py-3"
             >
-              {saving ? "Submitting…" : "Submit"}
+              <span className="relative z-10">{saving ? "Submitting…" : "Submit"}</span>
             </button>
           </div>
-        </div>
+        </motion.div>
       )}
 
       {/* doctor's instructions */}
       {showInstructions && (
-        <div className="rounded-3xl border border-white/20 bg-white/5 p-4">
-          <div className="text-white font-semibold mb-2">Doctor’s instructions</div>
-          <div className="text-slate-200 whitespace-pre-wrap">
+        <motion.div
+          className="rounded-3xl border border-emerald-500/30 bg-gradient-to-br from-emerald-900/20 to-slate-800/50 p-6 shadow-lg"
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.5, delay: 0.2 }}
+          whileHover={{ scale: 1.02 }}
+        >
+          <div className="flex items-center gap-2 mb-3">
+            <div className="text-emerald-300 font-semibold text-lg">📋 Doctor's Instructions</div>
+            <div className="ml-auto text-xs text-emerald-300/70 bg-emerald-500/20 px-2 py-1 rounded-full">
+              New
+            </div>
+          </div>
+          <div className="text-slate-100 whitespace-pre-wrap bg-white/5 p-3 rounded-xl border border-white/10">
             {row.instructions?.text || "—"}
           </div>
           {row.instructions?.meds && (
-            <div className="mt-2 text-slate-300 text-sm">
-              <b>Medicines:</b> {row.instructions.meds}
+            <div className="mt-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20">
+              <div className="text-amber-200 text-sm font-semibold mb-1">💊 Medicines:</div>
+              <div className="text-amber-100">{row.instructions.meds}</div>
             </div>
           )}
           {row.instructions?.doctorPhonePublic && (
-            <div className="mt-2 text-slate-300 text-sm">
-              <b>Doctor (WhatsApp):</b> {row.instructions.doctorPhonePublic}
+            <div className="mt-3 p-3 rounded-xl bg-blue-500/10 border border-blue-500/20">
+              <div className="text-blue-200 text-sm font-semibold mb-1">📱 Doctor Contact:</div>
+              <div className="text-blue-100">{row.instructions.doctorPhonePublic}</div>
             </div>
           )}
-        </div>
+        </motion.div>
       )}
 
       {/* marma plan with IoT start/stop per point */}
-      <div className="rounded-3xl border border-white/20 bg-white/5 p-4">
+      <motion.div
+        className="glass rounded-3xl p-6"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, delay: 0.3 }}
+      >
         <div className="text-white font-semibold mb-3">Marma plan</div>
 
         {!row.marmaPlan?.length ? (
           <div className="text-slate-300">No plan yet.</div>
         ) : (
           <>
-            <div className="grid gap-2">
+            <div className="grid gap-3">
               {row.marmaPlan.map((p, i) => (
-                <div
+                <motion.div
                   key={i}
-                  className={`grid md:grid-cols-[1fr,120px,1fr,auto] gap-2 items-center ${
+                  className={`grid md:grid-cols-[1fr,120px,1fr,auto] gap-3 items-center rounded-2xl p-3 transition-all duration-300 ${
                     runner.idx === i && runner.running
-                      ? "bg-white/10 rounded-2xl p-2"
-                      : ""
+                      ? "bg-gradient-to-r from-emerald-500/20 to-teal-500/20 border-2 border-emerald-400/50 shadow-lg shadow-emerald-500/20"
+                      : "hover:bg-white/5"
                   }`}
+                  whileHover={{ scale: 1.01 }}
+                  transition={{ duration: 0.2 }}
                 >
-                  <div className="text-white">{p.name || p.point || `Point ${i + 1}`}</div>
-                  <div className="text-slate-300">{(p.durationSec ?? 60)}s</div>
-                  <div className="text-slate-400">{p.notes || ""}</div>
+                  <div className="text-white font-medium">{p.name || p.point || `Point ${i + 1}`}</div>
+                  <div className="text-slate-300 text-sm">{(p.durationSec ?? 60)}s</div>
+                  <div className="text-slate-400 text-sm">{p.notes || ""}</div>
 
                   {runner.idx === i && runner.running ? (
                     <button
                       onClick={() => stopPoint(i)}
-                      className="rounded-2xl bg-rose-600 text-white hover:bg-rose-700 px-3 py-1.5"
+                      className="rounded-2xl bg-gradient-to-r from-rose-600 to-pink-600 text-white hover:from-rose-500 hover:to-pink-500 px-4 py-2 font-semibold transition-all duration-300 transform hover:scale-105 active:scale-95 shadow-lg shadow-rose-500/30"
                     >
                       Stop
                     </button>
                   ) : (
                     <button
                       onClick={() => startPoint(i)}
-                      className="rounded-2xl bg-emerald-600 text-white hover:bg-emerald-700 px-3 py-1.5"
+                      className="rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:from-emerald-500 hover:to-teal-500 px-4 py-2 font-semibold transition-all duration-300 transform hover:scale-105 active:scale-95 shadow-lg shadow-emerald-500/30"
                     >
                       Start
                     </button>
                   )}
-                </div>
+                </motion.div>
               ))}
             </div>
 
             {runner.running && current && (
-              <div className="mt-3 px-3 py-2 rounded-2xl bg-white/10 text-white">
+              <motion.div
+                className="mt-4 px-4 py-3 rounded-2xl bg-gradient-to-r from-emerald-600/30 to-teal-600/30 border-2 border-emerald-400/50 text-white shadow-lg"
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 0.3 }}
+              >
+                <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 mr-2 animate-pulse" />
                 Running: <b>{current.name || current.point || `Point ${runner.idx + 1}`}</b>{" "}
                 — {runner.left}s left
-              </div>
+              </motion.div>
             )}
           </>
         )}
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }
 

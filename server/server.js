@@ -53,13 +53,27 @@ app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
 /* ---------- Routes: require BEFORE mounting ---------- */
 const authRoutes        = require('./routes/auth');
-// Make sure the file is routes/doctors.js (lowercase on disk)
-const doctorRoutes      = require('./routes/Doctors');
+const doctorRoutes      = require('./routes/doctors');
 const photoRoutes       = require('./routes/photos');
 const therapyRoutes     = require('./routes/therapy');
 const roomRoutes        = require('./routes/rooms');
 const assessmentRoutes  = require('./routes/assessments');
 const patientsRoutes    = require('./routes/patients');
+const sessionsRoutes    = require('./routes/sessions');
+const notificationsRoutes = require('./routes/notifications');
+const userRoutes        = require('./routes/user');
+
+/* ---------- Socket.IO setup (needed before routes) ---------- */
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: (origin, cb) => cb(null, !origin || allowedOrigins.has(origin)),
+    credentials: true,
+  },
+});
+
+// Make io available to routes
+app.set('io', io);
 
 /* ---------- Mount routes (AFTER middleware) ---------- */
 app.use('/api/auth', authRoutes);
@@ -69,27 +83,21 @@ app.use('/api/therapy', therapyRoutes);
 app.use('/api/rooms', roomRoutes);
 app.use('/api/assessments', assessmentRoutes);
 app.use('/api/patients', patientsRoutes);
+app.use('/api/sessions', sessionsRoutes);
+app.use('/api/notifications', notificationsRoutes);
+app.use('/api/user', userRoutes);
 
 // NOTE: Do NOT mount non-existent routes yet (avoid crash):
 // const profileRoutes = require('./routes/profile');
 // app.use('/api/profile', profileRoutes);
-// const adminRoutes = require('./routes/Admin');
-// app.use('/api/admin', adminRoutes);
+const adminRoutes = require('./routes/admin');
+app.use('/api/admin', adminRoutes);
 
 /* ---------- Socket.IO (chat + WebRTC signaling) ---------- */
-const server = http.createServer(app);
-
 // Models used by sockets
 const Message = require('./models/Message');
 const Room    = require('./models/Room');
 const CallLog = require('./models/CallLog'); // call logs
-
-const io = new Server(server, {
-  cors: {
-    origin: (origin, cb) => cb(null, !origin || allowedOrigins.has(origin)),
-    credentials: true,
-  },
-});
 
 // Socket auth using JWT from handshake
 io.use((socket, next) => {

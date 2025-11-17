@@ -27,9 +27,9 @@ export default function UserTherapyList() {
         <h1 className="text-xl md:text-2xl font-semibold text-white">My Therapy Sessions</h1>
         <button
           onClick={load}
-          className="px-3 py-2 rounded-2xl border border-white/30 bg-white/10 text-white hover:bg-white/15 transition"
+          className="btn btn-outline px-6 py-3"
         >
-          Refresh
+          <span className="relative z-10">Refresh</span>
         </button>
       </div>
 
@@ -57,8 +57,9 @@ export default function UserTherapyList() {
                   key={r.id}
                   initial={{ y: 8, opacity: 0 }}
                   animate={{ y: 0, opacity: 1 }}
-                  transition={{ delay: idx * 0.03 }}
-                  className="rounded-2xl border border-white/15 bg-white/10 hover:bg-white/15 transition p-4 shadow-sm"
+                  transition={{ delay: idx * 0.03, duration: 0.2 }}
+                  className="card rounded-2xl p-4"
+                  whileHover={{ scale: 1.02, y: -4 }}
                 >
                   <Link to={`/user/session/${r.id}`} className="flex gap-3">
                     {thumb ? (

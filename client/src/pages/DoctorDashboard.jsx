@@ -13,8 +13,9 @@ export default function DoctorDashboard(){
       setLoading(true);
       try{
         const { data } = await api.get("/doctors/alerts");
-        setAlerts(Array.isArray(data) ? data : []);
-      } catch {
+        setAlerts(Array.isArray(data?.items) ? data.items : []);
+      } catch (e) {
+        console.error("Failed to load alerts:", e);
         setAlerts([]);
       } finally {
         setLoading(false);

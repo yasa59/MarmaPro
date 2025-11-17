@@ -1,6 +1,6 @@
 // client/src/pages/ChooseDoctor.jsx
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import api from "../api/axios";
 
@@ -46,6 +46,7 @@ function Modal({ open, onClose, doctor }) {
 }
 
 export default function ChooseDoctor() {
+  const navigate = useNavigate();
   const [q, setQ] = useState("");
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -76,13 +77,9 @@ export default function ChooseDoctor() {
     }
   }
 
-  async function requestConnect(id) {
-    try {
-      await api.post("/doctors/request", { doctorId: id });
-      alert("Request sent to the doctor.");
-    } catch (e) {
-      alert(e?.response?.data?.message || e.message);
-    }
+  function requestConnect(id) {
+    // Navigate to PatientIntakeForm instead of directly calling API
+    navigate(`/patient-intake/${id}`);
   }
 
   return (
@@ -159,7 +156,7 @@ export default function ChooseDoctor() {
                     onClick={() => requestConnect(d._id)}
                     className="px-3 py-2 rounded-2xl border bg-emerald-600 text-white hover:bg-emerald-700"
                   >
-                    Request connect
+                    Request Therapy
                   </button>
                 </div>
               </motion.div>

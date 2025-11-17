@@ -29,19 +29,28 @@ export default function AdminDashboard(){
     try{
       const { data } = await api.get('/auth/doctors/pending');
       setPending(Array.isArray(data) ? data : []);
-    }catch{ setPending([]); }
+    }catch(e){
+      console.error('Failed to load pending doctors:', e);
+      setPending([]);
+    }
   }
   async function loadDoctors(){
     try{
       const { data } = await api.get('/admin/users?role=doctor');
       setDoctors(Array.isArray(data?.items) ? data.items : []);
-    }catch{ setDoctors([]); }
+    }catch(e){
+      console.error('Failed to load doctors:', e);
+      setDoctors([]);
+    }
   }
   async function loadUsers(){
     try{
       const { data } = await api.get('/admin/users?role=user');
       setUsers(Array.isArray(data?.items) ? data.items : []);
-    }catch{ setUsers([]); }
+    }catch(e){
+      console.error('Failed to load users:', e);
+      setUsers([]);
+    }
   }
 
   async function refresh(current = tab){

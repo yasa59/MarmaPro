@@ -1,11 +1,13 @@
 // client/src/components/NotificationsBell.jsx
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Link, useLocation } from "react-router-dom";
 import api from "../api/axios";
+import { getSocket } from "../lib/socket";
 
 export default function NotificationsBell(){
   const [count, setCount] = useState(0);
   const loc = useLocation();
+  const socketRef = useRef(null);
 
   async function load(){
     try{
@@ -19,6 +21,31 @@ export default function NotificationsBell(){
   useEffect(()=>{
     load();                // initial
     const id = setInterval(load, 20000); // poll every 20s
+    
+    // Setup Socket.IO for real-time updates
+    const token = localStorage.getItem("token");
+    if (token) {
+      const socket = getSocket();
+      if (!socket.connected) {
+        socket.connect();
+      }
+      socketRef.current = socket;
+
+      // Listen for new notifications and reload count
+      const handleNewNotification = () => {
+        load();
+      };
+
+      socket.on("session:instructions", handleNewNotification);
+      socket.on("session:connect", handleNewNotification);
+
+      return () => {
+        clearInterval(id);
+        socket.off("session:instructions", handleNewNotification);
+        socket.off("session:connect", handleNewNotification);
+      };
+    }
+    
     return () => clearInterval(id);
   }, [loc.pathname]); // reload after navigating
 

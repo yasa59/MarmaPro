@@ -20,6 +20,8 @@ import TherapyControls from "./pages/TherapyControls";
 import TherapySelf from "./pages/TherapySelf";
 
 import ChooseDoctor from "./pages/ChooseDoctor";
+import RequestTherapyForm from "./pages/RequestTherapyForm";
+import PatientIntakeForm from "./pages/PatientIntakeForm";
 import DoctorAlerts from "./pages/DoctorAlerts";
 import DoctorPatients from "./pages/DoctorPatients";
 import DoctorPatient from "./pages/DoctorPatient";
@@ -70,8 +72,8 @@ export default function AppShell() {
 
   return (
     <div className="min-h-screen bg-cover bg-center relative" style={{ backgroundImage: 'url("/bg.jpg")' }}>
-      {/* overlay */}
-      <div className="absolute inset-0 bg-gradient-to-br from-blue-900/80 via-blue-700/70 to-blue-600/60" />
+      {/* Dark Blue Overlay - Modern Theme */}
+      <div className="absolute inset-0 bg-gradient-to-br from-slate-950/95 via-blue-950/90 to-indigo-950/95" />
 
       {/* 🔔 incoming call modal */}
       <IncomingCallModal open={!!incoming} info={incoming} onAccept={acceptIncoming} onDecline={declineIncoming} />
@@ -119,6 +121,14 @@ export default function AppShell() {
             <Route
               path="/user/doctors"
               element={<ProtectedRoute role="user"><ChooseDoctor /></ProtectedRoute>}
+            />
+            <Route
+              path="/request-therapy/:doctorId"
+              element={<ProtectedRoute role="user"><RequestTherapyForm /></ProtectedRoute>}
+            />
+            <Route
+              path="/patient-intake/:doctorId"
+              element={<ProtectedRoute role="user"><PatientIntakeForm /></ProtectedRoute>}
             />
             <Route
               path="/user/foot-photo"
