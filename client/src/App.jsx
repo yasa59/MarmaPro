@@ -1,6 +1,7 @@
 // client/src/App.jsx
 import { useEffect, useRef, useState } from "react";
 import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
+import { useTheme } from "./context/ThemeContext";
 import Navbar from "./components/Navbar";
 
 import HomeGate from "./components/HomeGate";
@@ -50,6 +51,7 @@ export default function AppShell() {
   const nav = useNavigate();
   const hubRef = useRef(null);
   const [incoming, setIncoming] = useState(null);
+  const { theme } = useTheme();
 
   // Start call hub after login (token exists)
   useEffect(() => {
@@ -70,10 +72,15 @@ export default function AppShell() {
   };
   const declineIncoming = () => setIncoming(null);
 
+  // Theme-based overlay opacity - lighter overlay in dark mode to show background more
+  const overlayClass = theme === "dark" 
+    ? "bg-gradient-to-br from-slate-950/75 via-blue-950/70 to-indigo-950/75" // More transparent in dark mode
+    : "bg-gradient-to-br from-white/85 via-blue-50/80 to-indigo-50/85"; // Light overlay for light mode
+
   return (
-    <div className="min-h-screen bg-cover bg-center relative" style={{ backgroundImage: 'url("/bg.jpg")' }}>
-      {/* Dark Blue Overlay - Modern Theme */}
-      <div className="absolute inset-0 bg-gradient-to-br from-slate-950/95 via-blue-950/90 to-indigo-950/95" />
+    <div className="min-h-screen bg-cover bg-center bg-fixed relative" style={{ backgroundImage: 'url("/bg.jpg")' }}>
+      {/* Theme-aware Overlay - More visible background */}
+      <div className={`absolute inset-0 ${overlayClass} transition-colors duration-300`} />
 
       {/* 🔔 incoming call modal */}
       <IncomingCallModal open={!!incoming} info={incoming} onAccept={acceptIncoming} onDecline={declineIncoming} />
@@ -189,23 +196,18 @@ export default function AppShell() {
               element={<ProtectedRoute><ProfileSettings /></ProtectedRoute>}
             />
 
+            {/* notifications */}
+            <Route
+              path="/notifications"
+              element={
+                <ProtectedRoute>
+                  <NotificationsPage />
+                </ProtectedRoute>
+              }
+            />
+
             {/* catch-all */}
             <Route path="*" element={<Navigate to="/" replace />} />
-
-<Route
-  path="/notifications"
-  element={
-    <ProtectedRoute>
-      <NotificationsPage />
-    </ProtectedRoute>
-  }
-/>
-
-<Route path="/user/sessions" element={<ProtectedRoute role="user"><UserTherapyList /></ProtectedRoute>} />
-<Route path="/user/session/:id" element={<ProtectedRoute role="user"><UserSessionDetail /></ProtectedRoute>} />
-
-<Route path="/doctor/session/:id" element={<ProtectedRoute role="doctor"><DoctorSessionDetail /></ProtectedRoute>} />
-
           </Routes>
         </div>
       </div>

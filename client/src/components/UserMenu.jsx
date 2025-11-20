@@ -1,6 +1,7 @@
 // client/src/components/UserMenu.jsx
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
 import api from "../api/axios";
 import fileUrl from "../utils/fileUrl";
 import { useAuth } from "../context/AuthContext";
@@ -42,33 +43,95 @@ export default function UserMenu(){
       </button>
 
       {open && (
-        <div className="absolute right-0 mt-2 w-64 rounded-xl bg-white/10 border border-white/20 backdrop-blur p-3 z-50">
-          <div className="flex items-center gap-3 pb-3 border-b border-white/10">
-            <div className="w-10 h-10 rounded-full bg-white/10 overflow-hidden">
-              {profile?.avatar ? (
-                <img src={fileUrl(profile.avatar)} alt="avatar" className="w-full h-full object-cover" />
+        <motion.div
+          initial={{ opacity: 0, y: -10, scale: 0.95 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          className="absolute right-0 mt-2 w-72 rounded-2xl bg-gradient-to-br from-slate-900/95 via-slate-800/95 to-slate-900/95 border border-white/20 backdrop-blur-xl shadow-2xl p-4 z-50"
+        >
+          {/* User Info Header */}
+          <div className="flex items-center gap-3 pb-4 border-b border-white/10 mb-3">
+            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500/20 to-indigo-500/20 border border-white/20 overflow-hidden ring-2 ring-white/10">
+              {profile?.avatar || profile?.profilePhoto ? (
+                <img
+                  src={fileUrl(profile.avatar || profile.profilePhoto)}
+                  alt="avatar"
+                  className="w-full h-full object-cover"
+                />
               ) : (
-                <div className="w-full h-full grid place-items-center text-white/60 text-xs">No<br/>Photo</div>
+                <div className="w-full h-full grid place-items-center text-white/70 text-lg">
+                  👤
+                </div>
               )}
             </div>
-            <div className="flex-1">
-              <div className="font-semibold">{displayName || (user?.email || "User")}</div>
-              {user?.role && <div className="text-xs text-white/70 capitalize">{user.role}</div>}
+            <div className="flex-1 min-w-0">
+              <div className="font-semibold text-white truncate">
+                {displayName || (user?.email || "User")}
+              </div>
+              {user?.role && (
+                <div className="text-xs text-white/60 capitalize flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                  {user.role}
+                </div>
+              )}
             </div>
           </div>
 
-          <div className="mt-2 grid gap-2">
-            <Link to="/settings/profile" className="btn btn-ghost w-full text-left">Personal details</Link>
-            <Link to="/settings" className="btn btn-ghost w-full text-left">Settings</Link>
-            <Link to="/contact" className="btn btn-ghost w-full text-left">Contact admin</Link>
-            <button
-              onClick={()=>{ logoutUser(); nav('/'); }}
-              className="btn bg-red-500 text-white w-full"
+          {/* Menu Items */}
+          <div className="grid gap-1.5">
+            <Link
+              to="/settings/profile"
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-white/90 hover:text-white hover:bg-white/10 transition group"
             >
-              Logout
+              <span className="text-lg">⚙️</span>
+              <span className="flex-1">Profile Settings</span>
+              <span className="text-white/40 group-hover:text-white/60">→</span>
+            </Link>
+            <Link
+              to="/notifications"
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-white/90 hover:text-white hover:bg-white/10 transition group"
+            >
+              <span className="text-lg">🔔</span>
+              <span className="flex-1">Notifications</span>
+              <span className="text-white/40 group-hover:text-white/60">→</span>
+            </Link>
+            {user?.role === 'doctor' && (
+              <Link
+                to="/doctor/therapy"
+                onClick={() => setOpen(false)}
+                className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-white/90 hover:text-white hover:bg-white/10 transition group"
+              >
+                <span className="text-lg">💆</span>
+                <span className="flex-1">Therapy Controls</span>
+                <span className="text-white/40 group-hover:text-white/60">→</span>
+              </Link>
+            )}
+            {user?.role === 'user' && (
+              <Link
+                to="/user/sessions"
+                onClick={() => setOpen(false)}
+                className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-white/90 hover:text-white hover:bg-white/10 transition group"
+              >
+                <span className="text-lg">📋</span>
+                <span className="flex-1">My Sessions</span>
+                <span className="text-white/40 group-hover:text-white/60">→</span>
+              </Link>
+            )}
+            <div className="my-1.5 border-t border-white/10"></div>
+            <button
+              onClick={() => {
+                logoutUser();
+                nav('/');
+                setOpen(false);
+              }}
+              className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-red-300 hover:text-red-200 hover:bg-red-500/20 transition group w-full text-left"
+            >
+              <span className="text-lg">🚪</span>
+              <span className="flex-1">Logout</span>
             </button>
           </div>
-        </div>
+        </motion.div>
       )}
     </div>
   );

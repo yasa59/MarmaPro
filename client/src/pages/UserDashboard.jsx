@@ -29,10 +29,12 @@ export default function UserDashboard() {
   const [accepted, setAccepted] = useState([]); // list of doctors who accepted me
   const [alerts, setAlerts] = useState([]);     // notifications
   const [drafts, setDrafts] = useState([]);      // saved intake drafts
+  const [sessions, setSessions] = useState([]);  // therapy sessions
 
   const [loadingA, setLoadingA] = useState(true);
   const [loadingN, setLoadingN] = useState(true);
   const [loadingD, setLoadingD] = useState(true);
+  const [loadingS, setLoadingS] = useState(true);
 
   // ---- Loaders ----
   async function loadGreetingAndLatestPhoto() {
@@ -159,12 +161,26 @@ export default function UserDashboard() {
     }
   }
 
+  async function loadSessions() {
+    setLoadingS(true);
+    try {
+      const { data } = await api.get("/sessions/mine");
+      setSessions(Array.isArray(data?.items) ? data.items : []);
+    } catch (e) {
+      console.error("loadSessions:", e?.response || e);
+      setSessions([]);
+    } finally {
+      setLoadingS(false);
+    }
+  }
+
   useEffect(() => {
     loadGreetingAndLatestPhoto();
     loadTopDoctors();
     loadAccepted();
     loadAlerts();
     loadDrafts();
+    loadSessions();
   }, []);
 
   return (
@@ -294,6 +310,81 @@ export default function UserDashboard() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+      </Section>
+
+      {/* Therapy Sessions */}
+      <Section
+        title="My Therapy Sessions"
+        right={
+          <div className="flex gap-2">
+            <Link
+              to="/user/sessions"
+              className="px-3 py-2 rounded-2xl border bg-white/80 hover:bg-white transition text-slate-800 text-sm"
+            >
+              View All
+            </Link>
+            <button
+              onClick={loadSessions}
+              className="px-3 py-2 rounded-2xl border bg-white/80 hover:bg-white transition text-slate-800"
+            >
+              Refresh
+            </button>
+          </div>
+        }
+      >
+        {loadingS ? (
+          <div className="space-y-2">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="h-16 rounded-xl border animate-pulse bg-white/70" />
+            ))}
+          </div>
+        ) : sessions.length === 0 ? (
+          <div className="p-6 text-slate-600">No therapy sessions yet. Request therapy from a doctor to get started.</div>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {sessions.slice(0, 6).map((session) => {
+              const doctor = session.doctor || {};
+              const statusLabel = (session.status || "").replace(/_/g, " ");
+              const statusColor = 
+                session.status === "responded" ? "bg-indigo-500/20 text-indigo-700 border-indigo-400/30" :
+                session.status === "accepted" ? "bg-emerald-500/20 text-emerald-700 border-emerald-400/30" :
+                session.status === "pending" ? "bg-yellow-500/20 text-yellow-700 border-yellow-400/30" :
+                "bg-slate-500/20 text-slate-700 border-slate-400/30";
+              
+              return (
+                <Link
+                  key={session.id}
+                  to={`/user/session/${session.id}`}
+                  className="rounded-2xl border bg-white/80 hover:bg-white transition p-4 shadow-sm hover:shadow-md"
+                >
+                  <div className="flex items-start gap-3 mb-2">
+                    {doctor.avatar || doctor.profilePhoto ? (
+                      <img 
+                        src={doctor.avatar || doctor.profilePhoto} 
+                        className="w-12 h-12 rounded-xl object-cover border" 
+                        alt={doctor.name}
+                      />
+                    ) : (
+                      <div className="w-12 h-12 rounded-xl bg-slate-200" />
+                    )}
+                    <div className="flex-1">
+                      <div className="font-semibold text-slate-900">{doctor.name || "Doctor"}</div>
+                      <div className="text-xs text-slate-600">{doctor.email || ""}</div>
+                    </div>
+                  </div>
+                  <div className={`text-xs px-2 py-1 rounded-full border inline-block ${statusColor}`}>
+                    {statusLabel}
+                  </div>
+                  {session.instructions && (session.instructions.text || session.instructions.meds) && (
+                    <div className="mt-2 text-xs text-emerald-600 font-medium">
+                      ✓ Instructions available
+                    </div>
+                  )}
+                </Link>
+              );
+            })}
           </div>
         )}
       </Section>

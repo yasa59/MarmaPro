@@ -8,14 +8,23 @@
 }
 
 
-/* baseline fallback background - Dark Blue Theme */
+/* baseline fallback background - Theme-aware */
 html, body, #root { 
   height: 100%; 
   scroll-behavior: smooth;
 }
-body { 
+
+/* Dark Theme (Default) */
+html.dark body,
+body:not(.light) {
   background: #0a1628; /* Deep dark blue */
   color: #e2e8f0;
+}
+
+/* Light Theme */
+html.light body {
+  background: #f8fafc; /* Light gray-blue */
+  color: #1e293b;
 }
 
 /* Modern Glassmorphism */

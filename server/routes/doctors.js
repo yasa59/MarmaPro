@@ -17,13 +17,29 @@ const { verifyToken, requireDoctor, requireUser } = require('../middleware/auth'
 const oid = (v) => new mongoose.Types.ObjectId(String(v));
 
 function doctorMatch(userId) {
-  const id = oid(userId);
-  return { $or: [{ doctorId: id }, { doctor: id }] };
+  const idObj = oid(userId);
+  const idStr = String(userId);
+  return {
+    $or: [
+      { doctorId: idObj },
+      { doctor: idObj },
+      { doctorId: idStr },
+      { doctor: idStr },
+    ],
+  };
 }
 
 function userMatch(userId) {
-  const id = oid(userId);
-  return { $or: [{ userId: id }, { user: id }] };
+  const idObj = oid(userId);
+  const idStr = String(userId);
+  return {
+    $or: [
+      { userId: idObj },
+      { user: idObj },
+      { userId: idStr },
+      { user: idStr },
+    ],
+  };
 }
 
 async function attachLatestFootPhoto(sessionDoc) {
@@ -67,25 +83,43 @@ async function attachLatestFootPhoto(sessionDoc) {
    - Creates/updates a pending Session tied to the request (with optional intake)
 ---------------------------------------------- */
 async function createOrPendConnection({ userId, doctorId, intake }) {
-  const doctor = await User.findOne({ _id: doctorId, role: 'doctor', isApproved: true });
+  const doctor = await User.findOne({ _id: doctorId, role: 'doctor', isApproved: true }).select('_id').lean();
   if (!doctor) {
     return { ok: false, status: 404, message: 'Doctor not found/approved' };
   }
 
+  const doctorStr = String(doctor._id || doctorId);
+  const doctorObjId = oid(doctorStr);
+  const userStr = String(userId);
+  const userObjId = oid(userStr);
+
+  const userFieldValues = [userObjId, userStr];
+  const doctorFieldValues = [doctorObjId, doctorStr];
+
+  const userFieldQuery = { $in: userFieldValues };
+  const doctorFieldQuery = { $in: doctorFieldValues };
+
+  const connectionMatch = {
+    $or: [
+      { userId: userFieldQuery, doctorId: doctorFieldQuery },
+      { userId: userFieldQuery, doctor: doctorFieldQuery },
+      { user: userFieldQuery, doctorId: doctorFieldQuery },
+      { user: userFieldQuery, doctor: doctorFieldQuery },
+    ],
+  };
+
   // Find existing connection (either shape)
-  let conn = await Connection.findOne({
-    $or: [{ userId, doctorId }, { user: userId, doctor: doctorId }],
-  });
+  let conn = await Connection.findOne(connectionMatch);
 
   let sessionId = null;
 
   if (!conn) {
     // Create new connection
     conn = new Connection({
-      userId,
-      doctorId,
-      user: userId,
-      doctor: doctorId,
+      userId: userObjId,
+      doctorId: doctorObjId,
+      user: userObjId,
+      doctor: doctorObjId,
       status: 'pending',
       requestedAt: new Date(),
     });
@@ -100,15 +134,15 @@ async function createOrPendConnection({ userId, doctorId, intake }) {
     // Create pending session
     try {
       let session = await Session.findOne({
-        userId,
-        doctorId,
+        userId: userFieldQuery,
+        doctorId: doctorFieldQuery,
         status: 'pending',
       }).sort({ createdAt: -1 });
 
       if (!session) {
         session = new Session({
-          userId,
-          doctorId,
+          userId: userObjId,
+          doctorId: doctorObjId,
           status: 'pending',
           marmaPlan: [
             { name: 'Marma 1', durationSec: 60, notes: '' },
@@ -175,8 +209,8 @@ async function createOrPendConnection({ userId, doctorId, intake }) {
     if (intake) {
       try {
         const session = await Session.findOne({
-          userId,
-          doctorId,
+          userId: userFieldQuery,
+          doctorId: doctorFieldQuery,
           status: 'pending',
         }).sort({ createdAt: -1 });
         if (session) {
@@ -206,8 +240,8 @@ async function createOrPendConnection({ userId, doctorId, intake }) {
     if (!sessionId) {
       try {
         const session = await Session.findOne({
-          userId,
-          doctorId,
+          userId: userFieldQuery,
+          doctorId: doctorFieldQuery,
           status: 'pending',
         }).sort({ createdAt: -1 });
         if (session) {
@@ -219,20 +253,33 @@ async function createOrPendConnection({ userId, doctorId, intake }) {
     }
 
     try {
-      await Notification.create({
-        recipientId: doctorId,
-        actorId: userId,
+      // Ensure doctorId is a valid ObjectId
+      const notif = await Notification.create({
+        recipientId: doctorObjId,
+        recipientIdStr: doctorStr,
+        actorId: userObjId,
         type: 'connect_request',
-        message: 'A patient resubmitted their therapy request',
+        message: intake 
+          ? 'A patient resubmitted their therapy request with intake information'
+          : 'A patient resubmitted their therapy request',
         meta: {
           connectionId: conn._id.toString(),
-          userId: userId.toString(),
+          userId: userStr,
           sessionId: sessionId || null,
         },
       });
-      console.log('📬 Created notification for re-pended request');
+      console.log('📬 Created notification for re-pended request:', {
+        notificationId: String(notif._id),
+        recipientId: String(notif.recipientId),
+        doctorIdProvided: String(doctorId),
+      });
     } catch (e) {
-      console.log('⚠️ Notification create failed (ok in dev):', e.message);
+      console.error('❌ Notification create failed:', {
+        error: e.message,
+        stack: e.stack,
+        doctorId: String(doctorId),
+      });
+      // Don't fail the request if notification fails, but log the error
     }
   } else if (conn.status === 'accepted') {
     return { ok: true, message: 'Already connected to this doctor', already: true };
@@ -241,8 +288,8 @@ async function createOrPendConnection({ userId, doctorId, intake }) {
     if (intake) {
       try {
         const session = await Session.findOne({
-          userId,
-          doctorId,
+          userId: userFieldQuery,
+          doctorId: doctorFieldQuery,
           status: 'pending',
         }).sort({ createdAt: -1 });
 
@@ -265,6 +312,42 @@ async function createOrPendConnection({ userId, doctorId, intake }) {
           await session.save();
           sessionId = String(session._id);
           console.log('📝 Updated existing pending session intake:', sessionId);
+        } else {
+          // Create session if it doesn't exist
+          try {
+            const newSession = new Session({
+              userId: userObjId,
+              doctorId: doctorObjId,
+              status: 'pending',
+              marmaPlan: [
+                { name: 'Marma 1', durationSec: 60, notes: '' },
+                { name: 'Marma 2', durationSec: 60, notes: '' },
+                { name: 'Marma 3', durationSec: 60, notes: '' },
+                { name: 'Marma 4', durationSec: 60, notes: '' },
+              ],
+              intake: {
+                fullName: intake.fullName || '',
+                age: intake.age ? Number(intake.age) : null,
+                gender: intake.gender || '',
+                livingArea: intake.livingArea || '',
+                bloodType: intake.bloodType || '',
+                painDescription: intake.painDescription || '',
+                painLocation: intake.painLocation || '',
+                painDuration: intake.painDuration || '',
+                painSeverity: intake.painSeverity || '',
+                painArea: intake.painArea || intake.painLocation || '',
+                problemType: intake.problemType || '',
+                phone: intake.phone || '',
+                otherNotes: intake.otherNotes || '',
+              },
+            });
+            await attachLatestFootPhoto(newSession);
+            await newSession.save();
+            sessionId = String(newSession._id);
+            console.log('📋 Created new session for existing pending connection:', sessionId);
+          } catch (e) {
+            console.error('⚠️ Failed to create session for existing connection:', e.message);
+          }
         }
       } catch (e) {
         console.error('⚠️ Session update failed:', e.message);
@@ -274,8 +357,8 @@ async function createOrPendConnection({ userId, doctorId, intake }) {
     if (!sessionId) {
       try {
         const session = await Session.findOne({
-          userId,
-          doctorId,
+          userId: userFieldQuery,
+          doctorId: doctorFieldQuery,
           status: 'pending',
         }).sort({ createdAt: -1 });
         if (session) {
@@ -286,50 +369,86 @@ async function createOrPendConnection({ userId, doctorId, intake }) {
       }
     }
 
-    if (intake) {
-      try {
-        await Notification.create({
-          recipientId: doctorId,
-          actorId: userId,
-          type: 'connect_request',
-          message: 'A patient updated their therapy request with intake information',
-          meta: {
-            connectionId: conn._id.toString(),
-            userId: userId.toString(),
-            sessionId: sessionId || null,
-          },
-        });
-        console.log('📬 Created notification for updated pending request');
-      } catch (e) {
-        console.log('⚠️ Notification create failed (ok in dev):', e.message);
-      }
+    // Always create notification for existing pending connections when intake is provided
+    let notificationCreated = false;
+    try {
+      // Ensure doctorId is a valid ObjectId
+      const notif = await Notification.create({
+        recipientId: doctorObjId,
+        recipientIdStr: doctorStr,
+        actorId: userObjId,
+        type: 'connect_request',
+        message: intake 
+          ? 'A patient sent a therapy request with intake information'
+          : 'A patient sent a therapy request',
+        meta: {
+          connectionId: conn._id.toString(),
+          userId: userStr,
+          sessionId: sessionId || null,
+        },
+      });
+      notificationCreated = true;
+      console.log('📬 Created notification for existing pending request:', {
+        notificationId: String(notif._id),
+        recipientId: String(notif.recipientId),
+        recipientIdType: typeof notif.recipientId,
+        doctorIdProvided: String(doctorId),
+        sessionId: sessionId || null,
+      });
+    } catch (e) {
+      console.error('❌ Notification create failed:', {
+        error: e.message,
+        stack: e.stack,
+        doctorId: String(doctorId),
+        doctorIdType: typeof doctorId,
+      });
+      // Don't fail the request if notification fails, but log the error
     }
 
     return {
       ok: true,
-      message: 'Request already sent',
+      message: 'Request sent to doctor',
       already: true,
       connectionId: conn._id.toString(),
       sessionId: sessionId || null,
+      notificationCreated,
     };
   }
 
   // Create notification for new connections
+  let notificationCreated = false;
   try {
-    await Notification.create({
-      recipientId: doctorId,
-      actorId: userId,
+    // Ensure doctorId is a valid ObjectId
+    const notif = await Notification.create({
+      recipientId: doctorObjId,
+      recipientIdStr: doctorStr,
+      actorId: userObjId,
       type: 'connect_request',
-      message: 'A patient requested to connect with you',
+      message: intake 
+        ? 'A patient sent a therapy request with intake information'
+        : 'A patient requested to connect with you',
       meta: {
         connectionId: conn._id.toString(),
-        userId: userId.toString(),
+        userId: userStr,
         sessionId: sessionId || null,
       },
     });
-    console.log('📬 Created notification for new request');
+    notificationCreated = true;
+    console.log('📬 Created notification for new request:', {
+      notificationId: String(notif._id),
+      recipientId: String(notif.recipientId),
+      recipientIdType: typeof notif.recipientId,
+      doctorIdProvided: String(doctorId),
+      sessionId: sessionId || null,
+    });
   } catch (e) {
-    console.log('⚠️ Notification create failed (ok in dev):', e.message);
+    console.error('❌ Notification create failed:', {
+      error: e.message,
+      stack: e.stack,
+      doctorId: String(doctorId),
+      doctorIdType: typeof doctorId,
+    });
+    // Don't fail the request if notification fails, but log the error
   }
 
   return {
@@ -337,6 +456,7 @@ async function createOrPendConnection({ userId, doctorId, intake }) {
     message: 'Request sent to doctor',
     connectionId: conn._id.toString(),
     sessionId: sessionId || null,
+    notificationCreated,
   };
 }
 
@@ -422,14 +542,91 @@ router.post('/request', verifyToken, requireUser, async (req, res) => {
     const userId = req.user.userId;
     const doctorId = req.body.doctorId;
     const intake = req.body.intake || null;
+    
+    console.log('📥 Received therapy request:', {
+      userId: String(userId),
+      doctorId: String(doctorId || 'missing'),
+      hasIntake: !!intake,
+    });
+    
     if (!doctorId) {
+      console.error('❌ Missing doctorId in request');
       return res.status(400).json({ message: 'doctorId required' });
     }
 
-    const result = await createOrPendConnection({ userId, doctorId, intake });
+    // Verify doctor exists and get their actual _id
+    const doctor = await User.findOne({ _id: doctorId, role: 'doctor' }).select('_id').lean();
+    if (!doctor) {
+      console.error('❌ Doctor not found:', String(doctorId));
+      return res.status(404).json({ message: 'Doctor not found' });
+    }
+    
+    const actualDoctorId = String(doctor._id);
+    console.log('👨‍⚕️ Doctor verified:', {
+      requestedDoctorId: String(doctorId),
+      actualDoctorId: actualDoctorId,
+      match: String(doctorId) === actualDoctorId,
+    });
+
+    const result = await createOrPendConnection({ userId, doctorId: actualDoctorId, intake });
+    
     if (!result.ok) {
+      console.error('❌ createOrPendConnection failed:', result.message);
       return res.status(result.status || 500).json({ message: result.message });
     }
+
+    // Verify notification was created
+    if (result.notificationCreated !== false) {
+      try {
+        const Notification = require('../models/Notification');
+        const doctorObjId = oid(actualDoctorId);
+        const recentNotif = await Notification.findOne({
+          $or: [
+            { recipientId: doctorObjId },
+            { recipientId: actualDoctorId },
+          ],
+          type: 'connect_request',
+        }).sort({ createdAt: -1 }).lean();
+        
+        console.log('🔍 Verification - Latest notification for doctor:', {
+          doctorId: actualDoctorId,
+          notificationId: recentNotif ? String(recentNotif._id) : 'NOT FOUND',
+          recipientId: recentNotif ? String(recentNotif.recipientId) : 'N/A',
+          createdAt: recentNotif?.createdAt || 'N/A',
+        });
+      } catch (e) {
+        console.error('⚠️ Notification verification failed:', e.message);
+      }
+    }
+
+    // Emit real-time notification to doctor via Socket.IO
+    try {
+      const io = req.app.get('io');
+      if (io) {
+        io.to(`user:${actualDoctorId}`).emit('connect_request', {
+          connectionId: result.connectionId,
+          sessionId: result.sessionId,
+          userId: String(userId),
+          hasIntake: !!intake,
+        });
+        console.log(`📡 Emitted connect_request to doctor:${actualDoctorId}`, {
+          connectionId: result.connectionId,
+          sessionId: result.sessionId,
+        });
+      } else {
+        console.log('⚠️ Socket.IO instance not available');
+      }
+    } catch (e) {
+      console.error('⚠️ Socket.IO emission failed:', e.message, e.stack);
+    }
+
+    console.log('✅ Therapy request processed successfully:', {
+      connectionId: result.connectionId,
+      sessionId: result.sessionId,
+      message: result.message,
+      notificationCreated: result.notificationCreated !== false,
+      doctorId: actualDoctorId,
+    });
 
     return res.json({
       message: result.message,
@@ -437,7 +634,7 @@ router.post('/request', verifyToken, requireUser, async (req, res) => {
       sessionId: result.sessionId || null,
     });
   } catch (e) {
-    console.error('POST /doctors/request error', e);
+    console.error('❌ POST /doctors/request error:', e.message, e.stack);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -568,8 +765,12 @@ router.post('/alerts/respond', verifyToken, requireDoctor, async (req, res) => {
       return res.status(404).json({ message: 'Connection not found' });
     }
 
-    const userId = conn.userId || conn.user;
-    const doctorId = conn.doctorId || conn.doctor;
+    const rawUserId = conn.userId || conn.user;
+    const rawDoctorId = conn.doctorId || conn.doctor;
+    const userStr = String(rawUserId);
+    const doctorStr = String(rawDoctorId);
+    const userId = typeof rawUserId === 'string' ? oid(rawUserId) : rawUserId;
+    const doctorId = typeof rawDoctorId === 'string' ? oid(rawDoctorId) : rawDoctorId;
 
     if (action === 'accept') {
       conn.status = 'accepted';
@@ -624,11 +825,12 @@ router.post('/alerts/respond', verifyToken, requireDoctor, async (req, res) => {
       try {
         await Notification.create({
           recipientId: userId,
+          recipientIdStr: userStr,
           actorId: doctorId,
           type: 'connect_accepted',
           message: 'Your doctor accepted the therapy request',
           meta: {
-            doctorId: String(doctorId),
+            doctorId: doctorStr,
             sessionId: sessionId || null,
           },
         });
@@ -646,10 +848,11 @@ router.post('/alerts/respond', verifyToken, requireDoctor, async (req, res) => {
     try {
       await Notification.create({
         recipientId: userId,
+        recipientIdStr: userStr,
         actorId: doctorId,
         type: 'connect_rejected',
         message: 'Your connection request was rejected',
-        meta: { doctorId: String(doctorId) },
+        meta: { doctorId: doctorStr },
       });
     } catch (e) {
       // Ignore notification errors
@@ -864,9 +1067,11 @@ router.post('/invite', verifyToken, requireDoctor, async (req, res) => {
     }
 
     try {
+      const recipientObj = typeof userId === 'string' ? oid(userId) : userId;
       await Notification.create({
-        recipientId: userId,
-        actorId: doctorId,
+        recipientId: recipientObj,
+        recipientIdStr: String(userId),
+        actorId: typeof doctorId === 'string' ? oid(doctorId) : doctorId,
         type: 'connect_request_from_doctor',
         message: 'Your doctor invited you to connect',
         meta: {
@@ -960,17 +1165,25 @@ router.post('/invites/respond', verifyToken, requireUser, async (req, res) => {
       return res.status(404).json({ message: 'Connection not found' });
     }
 
+    const rawDoctorId = conn.doctorId || conn.doctor;
+    const rawUserId = conn.userId || conn.user;
+    const doctorObj = typeof rawDoctorId === 'string' ? oid(rawDoctorId) : rawDoctorId;
+    const userObj = typeof rawUserId === 'string' ? oid(rawUserId) : rawUserId;
+    const doctorStr = String(rawDoctorId);
+    const userStr = String(rawUserId);
+
     if (action === 'accept') {
       conn.status = 'accepted';
       await conn.save();
 
       try {
         await Notification.create({
-          recipientId: conn.doctorId || conn.doctor,
-          actorId: conn.userId || conn.user,
+          recipientId: doctorObj,
+          recipientIdStr: doctorStr,
+          actorId: userObj,
           type: 'connect_accepted_by_user',
           message: 'The patient accepted your connection request',
-          meta: { userId: String(conn.userId || conn.user) },
+          meta: { userId: userStr },
         });
       } catch (e) {
         // Ignore notification errors
@@ -985,11 +1198,12 @@ router.post('/invites/respond', verifyToken, requireUser, async (req, res) => {
 
     try {
       await Notification.create({
-        recipientId: conn.doctorId || conn.doctor,
-        actorId: conn.userId || conn.user,
+        recipientId: doctorObj,
+        recipientIdStr: doctorStr,
+        actorId: userObj,
         type: 'connect_rejected_by_user',
         message: 'The patient rejected your connection request',
-        meta: { userId: String(conn.userId || conn.user) },
+        meta: { userId: userStr },
       });
     } catch (e) {
       // Ignore notification errors

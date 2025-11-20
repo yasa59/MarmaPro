@@ -11,6 +11,9 @@ export default function DoctorAlerts() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
   const [expandedItems, setExpandedItems] = useState(new Set());
+  const [notifications, setNotifications] = useState([]);
+  const [notifLoading, setNotifLoading] = useState(false);
+  const [notifErr, setNotifErr] = useState("");
 
   async function load() {
     setLoading(true);
@@ -34,8 +37,30 @@ export default function DoctorAlerts() {
     }
   }
 
+  async function loadNotifications() {
+    setNotifLoading(true);
+    setNotifErr("");
+    try {
+      const { data } = await api.get("/notifications?limit=25");
+      const items = Array.isArray(data?.items) ? data.items : [];
+      console.log("🔔 General notifications for doctor:", items.length);
+      setNotifications(items);
+    } catch (e) {
+      const msg =
+        e?.response?.data?.message ||
+        `${e?.response?.status || ""} ${e?.response?.statusText || ""}`.trim() ||
+        e.message;
+      console.error("❌ Load doctor notifications failed:", e?.response || e);
+      setNotifErr(msg);
+      setNotifications([]);
+    } finally {
+      setNotifLoading(false);
+    }
+  }
+
   useEffect(() => {
     load();
+    loadNotifications();
   }, []);
 
   async function respond(connectionId, action) {
@@ -58,7 +83,10 @@ export default function DoctorAlerts() {
       <div className="flex items-center justify-between">
         <h1 className="text-xl md:text-2xl font-semibold text-white">Therapy Requests</h1>
         <button
-          onClick={load}
+          onClick={() => {
+            load();
+            loadNotifications();
+          }}
           className="px-3 py-2 rounded-2xl border border-white/20 bg-white/10 text-white hover:bg-white/20 transition"
         >
           Refresh
@@ -254,6 +282,80 @@ export default function DoctorAlerts() {
             })}
           </div>
         </AnimatePresence>
+      </div>
+
+      {/* Notifications Section */}
+      <div className="rounded-3xl border border-white/10 bg-white/5 backdrop-blur p-4 text-white shadow-xl">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-semibold">Notifications</h2>
+          <button
+            onClick={loadNotifications}
+            className="px-3 py-2 rounded-2xl border border-white/20 bg-white/10 text-white hover:bg-white/20 transition"
+          >
+            Refresh
+          </button>
+        </div>
+
+        {notifErr && (
+          <div className="mb-3 text-sm text-rose-300">{notifErr}</div>
+        )}
+
+        {notifLoading && (
+          <div className="space-y-2">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="rounded-2xl border border-white/10 bg-slate-900/40 animate-pulse h-20" />
+            ))}
+          </div>
+        )}
+
+        {!notifLoading && notifications.length === 0 && !notifErr && (
+          <div className="p-6 text-slate-300 text-center">
+            No notifications yet.
+          </div>
+        )}
+
+        <div className="space-y-3">
+          {notifications.map((notif) => (
+            <div
+              key={notif._id}
+              className="rounded-2xl border border-white/10 bg-white/5 p-4 flex flex-col gap-2"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <div className="text-sm font-semibold text-white">
+                    {notif.message}
+                  </div>
+                  <div className="text-xs text-white/60">
+                    {notif.type?.replace(/_/g, " ")}
+                  </div>
+                </div>
+                {notif.createdAt && (
+                  <div className="text-[11px] text-white/60">
+                    {new Date(notif.createdAt).toLocaleString()}
+                  </div>
+                )}
+              </div>
+
+              {notif.meta?.sessionId && (
+                <button
+                  onClick={() => navigate(`/doctor/session/${notif.meta.sessionId}`)}
+                  className="self-start px-3 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-xs hover:from-blue-500 hover:to-indigo-500"
+                >
+                  View Session
+                </button>
+              )}
+
+              {!notif.meta?.sessionId && notif.meta?.connectionId && (
+                <button
+                  onClick={() => navigate("/doctor/alerts")}
+                  className="self-start px-3 py-2 rounded-xl border border-white/20 text-xs text-white hover:bg-white/10"
+                >
+                  View Request
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

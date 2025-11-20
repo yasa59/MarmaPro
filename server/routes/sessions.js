@@ -276,6 +276,7 @@ router.patch('/:id/instructions', verifyToken, requireDoctor, async (req, res) =
       const Notification = require('../models/Notification');
       await Notification.create({
         recipientId: s.userId,
+        recipientIdStr: String(s.userId),
         actorId: s.doctorId,
         type: 'instructions_sent',
         message: 'Your doctor has sent you therapy instructions',
@@ -384,6 +385,7 @@ router.patch('/:id/accept', verifyToken, requireDoctor, async (req, res) => {
       const Notification = require('../models/Notification');
       await Notification.create({
         recipientId: s.userId,
+        recipientIdStr: String(s.userId),
         actorId: s.doctorId,
         type: 'connect_accepted',
         message: 'Your doctor accepted the therapy session',
@@ -471,7 +473,8 @@ router.post('/:id/connect', verifyToken, async (req, res) => {
       const otherUserId = isUser ? s.doctorId : s.userId;
       await Notification.create({
         recipientId: otherUserId,
-        actorId: me,
+        recipientIdStr: String(otherUserId),
+        actorId: typeof me === 'string' ? oid(me) : me,
         type: isUser ? 'user_connect' : 'doctor_connect',
         message: isUser 
           ? 'Patient is ready to connect' 

@@ -14,6 +14,7 @@ export default function Signup() {
   const [name, setName]       = useState("");
   const [email, setEmail]     = useState("");
   const [password, setPass]   = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
 
   // doctor-only fields
   const [profilePhoto, setProfilePhoto] = useState(null);
@@ -27,6 +28,19 @@ export default function Signup() {
     e.preventDefault();
     setMsg("");
     setErr("");
+
+    // Validate passwords match
+    if (password !== confirmPassword) {
+      setErr("Passwords do not match. Please try again.");
+      return;
+    }
+
+    // Validate password length
+    if (password.length < 6) {
+      setErr("Password must be at least 6 characters long.");
+      return;
+    }
+
     setBusy(true);
 
     try {
@@ -137,6 +151,27 @@ export default function Signup() {
               required
               minLength={6}
             />
+            <p className="text-xs text-white/60 mt-1">Must be at least 6 characters</p>
+          </div>
+
+          <div>
+            <label className="block text-sm mb-1">Confirm Password</label>
+            <input
+              className="w-full p-3 rounded-lg bg-white/15 border border-white/20 outline-none"
+              placeholder="••••••••"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              type="password"
+              autoComplete="new-password"
+              required
+              minLength={6}
+            />
+            {confirmPassword && password !== confirmPassword && (
+              <p className="text-xs text-red-300 mt-1">⚠️ Passwords do not match</p>
+            )}
+            {confirmPassword && password === confirmPassword && password.length >= 6 && (
+              <p className="text-xs text-emerald-300 mt-1">✅ Passwords match</p>
+            )}
           </div>
 
           {role === "doctor" && (

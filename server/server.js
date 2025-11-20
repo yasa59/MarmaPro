@@ -52,16 +52,19 @@ app.use('/uploads', express.static(uploadsDir)); // serves /uploads/**
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
 /* ---------- Routes: require BEFORE mounting ---------- */
-const authRoutes        = require('./routes/auth');
-const doctorRoutes      = require('./routes/doctors');
-const photoRoutes       = require('./routes/photos');
-const therapyRoutes     = require('./routes/therapy');
-const roomRoutes        = require('./routes/rooms');
-const assessmentRoutes  = require('./routes/assessments');
-const patientsRoutes    = require('./routes/patients');
-const sessionsRoutes    = require('./routes/sessions');
+const authRoutes         = require('./routes/auth');
+const doctorRoutes       = require('./routes/doctors');
+const photoRoutes        = require('./routes/photos');
+const therapyRoutes      = require('./routes/therapy');
+const roomRoutes         = require('./routes/rooms');
+const assessmentRoutes   = require('./routes/assessments');
+const patientsRoutes     = require('./routes/patients');
+const sessionsRoutes     = require('./routes/sessions');
 const notificationsRoutes = require('./routes/notifications');
-const userRoutes        = require('./routes/user');
+const userRoutes         = require('./routes/user');
+const profileRoutes      = require('./routes/profile');
+const callRoutes         = require('./routes/call');
+const iceRoutes          = require('./routes/ice');
 
 /* ---------- Socket.IO setup (needed before routes) ---------- */
 const server = http.createServer(app);
@@ -86,10 +89,10 @@ app.use('/api/patients', patientsRoutes);
 app.use('/api/sessions', sessionsRoutes);
 app.use('/api/notifications', notificationsRoutes);
 app.use('/api/user', userRoutes);
+app.use('/api/profile', profileRoutes);
+app.use('/api/call', callRoutes);
+app.use('/api/ice', iceRoutes);
 
-// NOTE: Do NOT mount non-existent routes yet (avoid crash):
-// const profileRoutes = require('./routes/profile');
-// app.use('/api/profile', profileRoutes);
 const adminRoutes = require('./routes/admin');
 app.use('/api/admin', adminRoutes);
 
@@ -207,15 +210,67 @@ io.on('connection', (socket) => {
 
 /* ---------- Start ---------- */
 (async function start() {
-  try {
-    const uri = process.env.MONGO_URI || 'mongodb://localhost:27017/iMarmaTherapy';
-    await mongoose.connect(uri);
-    console.log('✅ MongoDB connected');
-
-    const PORT = process.env.PORT || 5000;
-    server.listen(PORT, () => console.log(`🚀 API on http://localhost:${PORT}`));
-  } catch (e) {
-    console.error('Mongo connection error:', e.message);
-    process.exit(1);
+  const PORT = process.env.PORT || 5000;
+  const uri = process.env.MONGO_URI || 'mongodb://localhost:27017/iMarmaTherapy';
+  
+  // Helper function to check MongoDB connection
+  async function connectMongoDB() {
+    try {
+      console.log('🔄 Connecting to MongoDB...');
+      const safeUri = uri.replace(/\/\/([^:]+):([^@]+)@/, '//$1:***@');
+      console.log('   URI:', safeUri);
+      
+      await mongoose.connect(uri, {
+        serverSelectionTimeoutMS: 5000,
+        socketTimeoutMS: 45000,
+      });
+      console.log('✅ MongoDB connected successfully');
+      return true;
+    } catch (e) {
+      console.error('\n❌ MongoDB connection failed:', e.message);
+      return false;
+    }
   }
+
+  // Try to connect
+  const connected = await connectMongoDB();
+  
+  if (!connected) {
+    console.error('\n📋 MongoDB Setup Instructions:');
+    console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.error('\n🔹 Option 1: Install MongoDB Locally (Windows)');
+    console.error('   1. Download: https://www.mongodb.com/try/download/community');
+    console.error('   2. Install MongoDB Community Server');
+    console.error('   3. MongoDB should auto-start as a Windows service');
+    console.error('   4. Restart this server: npm run dev');
+    console.error('\n🔹 Option 2: Use MongoDB Atlas (Cloud - FREE)');
+    console.error('   1. Go to: https://www.mongodb.com/cloud/atlas');
+    console.error('   2. Sign up for free account');
+    console.error('   3. Create a free cluster');
+    console.error('   4. Click "Connect" → "Connect your application"');
+    console.error('   5. Copy the connection string');
+    console.error('   6. Create server/.env file with:');
+    console.error('      MONGO_URI=mongodb+srv://username:password@cluster.mongodb.net/iMarmaTherapy');
+    console.error('      PORT=5000');
+    console.error('      JWT_SECRET=your-secret-key-here');
+    console.error('   7. Restart server: npm run dev');
+    console.error('\n🔹 Option 3: Use Docker (if installed)');
+    console.error('   docker run -d -p 27017:27017 --name mongodb mongo:latest');
+    console.error('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.error('\n⚠️  Server will start but API endpoints will fail without MongoDB.');
+    console.error('   Fix MongoDB connection and restart the server.\n');
+    
+    // Still start the server but it won't work properly
+    server.listen(PORT, () => {
+      console.log(`🚀 API server started on http://localhost:${PORT}`);
+      console.log('⚠️  WARNING: MongoDB not connected - API will not work!\n');
+    });
+    return;
+  }
+
+  // MongoDB connected successfully - start server normally
+  server.listen(PORT, () => {
+    console.log(`🚀 API server started on http://localhost:${PORT}`);
+    console.log('✅ Ready to accept requests\n');
+  });
 })();

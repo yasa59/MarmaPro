@@ -1,23 +1,31 @@
 // client/src/pages/Notifications.jsx
 import { useEffect, useState, useRef } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import api from "../api/axios";
 import { getSocket } from "../lib/socket";
 
 export default function NotificationsPage() {
+  const navigate = useNavigate();
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
   const socketRef = useRef(null);
+  const role = localStorage.getItem("role") || "user";
 
   async function load() {
     setLoading(true); setErr("");
     try {
       // Get all notifications
       const { data } = await api.get("/notifications?limit=50");
+      console.log("📬 Notifications loaded:", {
+        role,
+        count: data?.items?.length || 0,
+        items: data?.items || [],
+      });
       setNotifications(Array.isArray(data?.items) ? data.items : []);
     } catch (e) {
+      console.error("❌ Failed to load notifications:", e?.response || e);
       setErr(e?.response?.data?.message || e.message);
       setNotifications([]);
     } finally {
@@ -48,11 +56,13 @@ export default function NotificationsPage() {
       // Listen for instruction notifications
       socket.on("session:instructions", handleNewNotification);
       socket.on("session:connect", handleNewNotification);
+      socket.on("connect_request", handleNewNotification);
 
       return () => {
         clearInterval(interval);
         socket.off("session:instructions", handleNewNotification);
         socket.off("session:connect", handleNewNotification);
+        socket.off("connect_request", handleNewNotification);
       };
     }
     
@@ -89,9 +99,17 @@ export default function NotificationsPage() {
       }
     }
     if (notification.meta?.connectionId) {
-      return `/doctor/therapy-requests`;
+      return `/doctor/alerts`;
     }
     return null;
+  }
+
+  function handleStartTherapy(notification) {
+    if (notification.meta?.sessionId) {
+      navigate(`/doctor/session/${notification.meta.sessionId}`);
+    } else if (notification.meta?.connectionId) {
+      navigate(`/doctor/alerts`);
+    }
   }
 
   function getNotificationIcon(type) {
@@ -185,6 +203,21 @@ export default function NotificationsPage() {
                           <div className="text-xs text-emerald-300 bg-emerald-500/20 px-2 py-1 rounded-full inline-block">
                             Click to view instructions
                           </div>
+                        </div>
+                      )}
+                      {/* Show "Start Therapy" button for doctors when they receive connect_request */}
+                      {role === 'doctor' && notif.type === 'connect_request' && notif.meta?.sessionId && (
+                        <div className="mt-3">
+                          <button
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              handleStartTherapy(notif);
+                            }}
+                            className="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold text-sm transition shadow-sm"
+                          >
+                            Start Therapy Session
+                          </button>
                         </div>
                       )}
                     </div>

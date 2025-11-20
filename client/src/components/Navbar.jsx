@@ -98,15 +98,17 @@ export default function Navbar() {
                 </NavLink>
               )}
 
-              {/* Doctor quick links */}
-              {user?.role === "doctor" && (
-                <>
-                  <NavLink to="/doctor/alerts">Alerts</NavLink>
-                  <NavLink to="/doctor/patients">Patients</NavLink>
-                  {/* Keep if you use it */}
-                  <NavLink to="/doctor/therapy">Therapy</NavLink>
-                </>
-              )}
+            {/* Doctor quick links (single Alerts button with badge) */}
+            {user?.role === "doctor" && (
+              <>
+                <NavLink to="/doctor/alerts">
+                  Alerts
+                  {unread > 0 && <Badge>{unread}</Badge>}
+                </NavLink>
+                <NavLink to="/doctor/patients">Patients</NavLink>
+                <NavLink to="/doctor/therapy">Therapy</NavLink>
+              </>
+            )}
 
               {/* User quick links */}
               {user?.role === "user" && (
@@ -119,8 +121,8 @@ export default function Navbar() {
                 </>
               )}
 
-              {/* Alerts link with unread badge (and keep your bell icon too) */}
-              {user && (
+            {/* Non-doctor alerts link with unread badge */}
+            {user && user?.role !== "doctor" && (
                 <NavLink to="/notifications">
                   Alerts
                   {unread > 0 && <Badge>{unread}</Badge>}

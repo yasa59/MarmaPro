@@ -6,6 +6,7 @@ import api from "../api/axios";
 export default function DoctorDashboard(){
   const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [notificationCount, setNotificationCount] = useState(0);
   const pendingCount = alerts.length;
 
   useEffect(()=>{
@@ -14,6 +15,7 @@ export default function DoctorDashboard(){
       try{
         const { data } = await api.get("/doctors/alerts");
         setAlerts(Array.isArray(data?.items) ? data.items : []);
+        console.log("📋 Doctor alerts loaded:", data?.items?.length || 0);
       } catch (e) {
         console.error("Failed to load alerts:", e);
         setAlerts([]);
@@ -21,7 +23,27 @@ export default function DoctorDashboard(){
         setLoading(false);
       }
     };
+    
+    const loadNotifications = async () => {
+      try {
+        const { data } = await api.get("/notifications/unread-count");
+        setNotificationCount(data?.count || 0);
+        console.log("📬 Unread notifications:", data?.count || 0);
+      } catch (e) {
+        console.error("Failed to load notification count:", e);
+      }
+    };
+    
     load();
+    loadNotifications();
+    
+    // Refresh every 10 seconds
+    const interval = setInterval(() => {
+      load();
+      loadNotifications();
+    }, 10000);
+    
+    return () => clearInterval(interval);
   },[]);
 
   return (
@@ -47,8 +69,13 @@ export default function DoctorDashboard(){
           </Link>
 
           {/* Notifications */}
-          <Link to="/notifications" className="btn glass text-center">
+          <Link to="/notifications" className="btn glass text-center relative">
             Notifications
+            {notificationCount > 0 && (
+              <span className="absolute -top-2 -right-2 min-w-6 h-6 grid place-items-center rounded-full bg-pink-500 text-white text-xs font-bold animate-bounce">
+                {notificationCount}
+              </span>
+            )}
           </Link>
         </div>
       </div>
