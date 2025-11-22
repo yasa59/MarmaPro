@@ -588,7 +588,7 @@ router.patch('/:id/intake', verifyToken, requireUser, async (req, res) => {
 /* ---------------------------------------------
    POST /api/sessions/:id/control (user)
    body: { pointIndex, action: 'start'|'stop' }
-   - forwards to IoT box if IOT_BASE_URL is set
+   - forwards to ESP32 if ESP32_BASE_URL is set
 ---------------------------------------------- */
 router.post('/:id/control', verifyToken, requireUser, async (req, res) => {
   try {
@@ -603,17 +603,43 @@ router.post('/:id/control', verifyToken, requireUser, async (req, res) => {
     const idx = Number(pointIndex);
     if (!row.marmaPlan || !row.marmaPlan[idx]) return res.status(400).json({ message: 'invalid_point' });
 
-    // optional IoT forward
-    const base = process.env.IOT_BASE_URL; // e.g. http://192.168.1.50:5001
-    if (base) {
+    // Forward to ESP32 if configured
+    const esp32Base = process.env.ESP32_BASE_URL; // e.g. http://192.168.1.100
+    if (esp32Base) {
       try {
-        await axios.post(`${base}/motor`, { pointIndex: idx, action });
+        const marmaPoint = row.marmaPlan[idx];
+        const durationSec = marmaPoint.durationSec || 60;
+        
+        if (action === 'start') {
+          // Send start command with duration
+          const response = await axios.get(`${esp32Base}/motor/start`, {
+            params: {
+              pointIndex: idx,
+              durationSec: durationSec
+            },
+            timeout: 5000 // 5 second timeout
+          });
+          
+          if (process.env.NODE_ENV !== 'production') {
+            console.log('ESP32 start response:', response.data);
+          }
+        } else if (action === 'stop') {
+          // Send stop command
+          await axios.get(`${esp32Base}/motor/stop`, {
+            params: { pointIndex: idx },
+            timeout: 5000
+          });
+        }
       } catch (e) {
-        console.log('IoT forward failed:', e.message);
+        // Log error but don't fail the request (ESP32 might be offline)
+        if (process.env.NODE_ENV !== 'production') {
+          console.error('ESP32 communication error:', e.message);
+        }
+        // Still return success to user, but they can see ESP32 status separately
       }
     }
 
-    res.json({ ok: true });
+    res.json({ ok: true, esp32Connected: !!esp32Base });
   } catch (e) {
     console.error('POST /sessions/:id/control error', e);
     res.status(500).json({ message: 'server_error' });
