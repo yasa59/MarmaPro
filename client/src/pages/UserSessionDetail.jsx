@@ -4,6 +4,7 @@ import { useParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import api from "../api/axios";
 import { getSocket } from "../lib/socket";
+import toast from "../components/Toast";
 
 export default function UserSessionDetail() {
   const { id } = useParams();
@@ -40,7 +41,9 @@ export default function UserSessionDetail() {
         }));
       }
     } catch (e) {
-      console.error(e);
+      if (import.meta.env.DEV) {
+        console.error(e);
+      }
       setRow(null);
     } finally {
       setBusy(false);
@@ -74,9 +77,9 @@ export default function UserSessionDetail() {
         }));
 
         if (data.connected) {
-          alert("🎉 Both parties are ready! You can now start the session.");
+          toast.success("🎉 Both parties are ready! You can now start the session.");
         } else if (data.doctorReady) {
-          alert("✅ Doctor is ready to connect!");
+          toast.info("✅ Doctor is ready to connect!");
         }
       }
     };
@@ -85,7 +88,7 @@ export default function UserSessionDetail() {
       if (data.sessionId === id) {
         // Reload session data to get updated instructions
         load();
-        alert(`📋 ${data.doctorName} has sent you therapy instructions!`);
+        toast.success(`📋 ${data.doctorName} has sent you therapy instructions!`);
       }
     };
 
@@ -105,10 +108,10 @@ export default function UserSessionDetail() {
       const { data } = await api.post(`/sessions/${id}/connect`);
       await load(); // Reload to get updated connection state
       if (data.message) {
-        alert(data.message);
+        toast.info(data.message);
       }
     } catch (e) {
-      alert(e?.response?.data?.message || e.message);
+      toast.error(e?.response?.data?.message || e.message);
     } finally {
       setConnecting(false);
     }
@@ -120,9 +123,9 @@ export default function UserSessionDetail() {
       const payload = { ...intake, age: Number(intake.age || 0) || null };
       await api.patch(`/sessions/${id}/intake`, payload);
       await load();
-      alert("Submitted.");
+      toast.success("Submitted.");
     } catch (e) {
-      alert(e?.response?.data?.message || e.message);
+      toast.error(e?.response?.data?.message || e.message);
     } finally {
       setSaving(false);
     }
@@ -161,7 +164,7 @@ export default function UserSessionDetail() {
       const secs = Number(row.marmaPlan[i].durationSec || 60);
       setRunner({ idx: i, left: secs, running: true });
     } catch (e) {
-      alert(e?.response?.data?.message || e.message);
+      toast.error(e?.response?.data?.message || e.message);
     }
   }
 

@@ -3,6 +3,8 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import api from "../api/axios";
+import fileUrl from "../utils/fileUrl";
+import toast from "../components/Toast";
 
 function Modal({ open, onClose, doctor }) {
   if (!open || !doctor) return null;
@@ -59,7 +61,7 @@ export default function ChooseDoctor() {
       const { data } = await api.get(`/doctors/public?q=${encodeURIComponent(q)}`);
       setRows(Array.isArray(data?.items) ? data.items : []);
     } catch (e) {
-      alert(e?.response?.data?.message || e.message);
+      toast.error(e?.response?.data?.message || e.message);
     } finally {
       setLoading(false);
     }
@@ -73,7 +75,7 @@ export default function ChooseDoctor() {
       setSelected(data);
       setOpen(true);
     } catch (e) {
-      alert(e?.response?.data?.message || e.message);
+      toast.error(e?.response?.data?.message || e.message);
     }
   }
 
@@ -89,14 +91,14 @@ export default function ChooseDoctor() {
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search doctors by name, email or specialization…"
-          className="flex-1 px-3 py-2 rounded-2xl border bg-white/90"
+          className="flex-1 px-3 py-2 rounded-2xl border bg-slate-100 dark:bg-white/90 text-slate-900 dark:text-slate-900 placeholder:text-slate-500 dark:placeholder:text-slate-600"
         />
-        <button onClick={load} className="px-3 py-2 rounded-2xl border bg-white/80 hover:bg-white transition">
+        <button onClick={load} className="px-3 py-2 rounded-2xl border bg-slate-200 dark:bg-white/80 hover:bg-slate-300 dark:hover:bg-white transition text-slate-900 dark:text-slate-900">
           Search
         </button>
       </div>
 
-      <div className="rounded-3xl border border-white/30 bg-white/70 backdrop-blur p-4">
+      <div className="rounded-3xl border border-slate-300 dark:border-white/30 bg-slate-100/90 dark:bg-white/70 backdrop-blur p-4">
         {loading && (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {Array.from({ length: 6 }).map((_, i) => (
@@ -106,7 +108,7 @@ export default function ChooseDoctor() {
         )}
 
         {!loading && rows.length === 0 && (
-          <div className="p-8 text-slate-600 text-center">No doctors found.</div>
+          <div className="p-8 text-slate-800 dark:text-slate-600 text-center">No doctors found.</div>
         )}
 
         <AnimatePresence mode="popLayout">
@@ -119,42 +121,61 @@ export default function ChooseDoctor() {
                 animate={{ y: 0, opacity: 1 }}
                 exit={{ y: 8, opacity: 0 }}
                 transition={{ delay: idx * 0.03 }}
-                className="group rounded-2xl border bg-white/80 hover:bg-white transition p-4 shadow-sm hover:shadow-md"
+                className="group rounded-2xl border bg-slate-100 dark:bg-white/80 hover:bg-slate-200 dark:hover:bg-white transition p-4 shadow-sm hover:shadow-md"
               >
                 <div className="flex gap-3">
-                  {d.profilePhoto ? (
-                    <img src={d.profilePhoto} className="w-12 h-12 rounded-xl object-cover border" />
-                  ) : (
-                    <div className="w-12 h-12 rounded-xl bg-slate-200" />
+                  {d.profilePhoto || d.avatar || d.avatarUrl ? (
+                    <img 
+                      src={fileUrl(d.profilePhoto || d.avatar || d.avatarUrl)} 
+                      className="w-12 h-12 rounded-xl object-cover border" 
+                      alt={d.name}
+                      onError={(e) => {
+                        e.target.style.display = 'none';
+                        if (e.target.nextSibling) {
+                          e.target.nextSibling.style.display = 'flex';
+                        }
+                      }}
+                    />
+                  ) : null}
+                  {(!d.profilePhoto && !d.avatar && !d.avatarUrl) && (
+                    <div className="w-12 h-12 rounded-xl bg-slate-300 dark:bg-slate-200 flex items-center justify-center text-slate-600 dark:text-slate-500 text-xs">
+                      {d.name?.[0]?.toUpperCase() || "D"}
+                    </div>
                   )}
                   <div className="flex-1">
-                    <div className="font-semibold">{d.name}</div>
-                    <div className="text-xs text-slate-500">{d.email}</div>
-                    <div className="text-xs text-slate-600 mt-1">
+                    <div className="font-semibold text-slate-900 dark:text-slate-900">{d.name}</div>
+                    <div className="text-xs text-slate-700 dark:text-slate-500">{d.email}</div>
+                    <div className="text-xs text-slate-800 dark:text-slate-600 mt-1">
                       {(d.gender ? `${d.gender} · ` : "")}{d.age ? `${d.age}y` : ""}
                     </div>
-                    <div className="text-xs text-slate-700 mt-1">{d.specialization || ""}</div>
+                    <div className="text-xs text-slate-900 dark:text-slate-700 mt-1">{d.specialization || ""}</div>
                   </div>
                 </div>
 
-                <div className="mt-3 flex gap-2">
+                <div className="mt-3 flex flex-wrap gap-2">
                   {/* NEW: link to full public profile page */}
                   <Link
                     to={`/doctor/${d._id || d.id}/profile`}
-                    className="px-3 py-2 rounded-2xl border border-white/30 hover:bg-white/10 transition"
+                    className="px-4 py-2.5 rounded-xl border-2 border-slate-700 dark:border-white/50 bg-slate-700 dark:bg-slate-800 hover:bg-slate-800 dark:hover:bg-slate-700 transition text-white dark:text-white text-sm font-bold shadow-lg"
                     title="Open full profile"
+                    style={{ color: '#ffffff', fontWeight: '700' }}
                   >
                     View Profile
                   </Link>
 
                   {/* Keep your quick preview modal (optional) */}
-                  <button onClick={() => viewProfile(d._id)} className="px-3 py-2 rounded-2xl border">
+                  <button 
+                    onClick={() => viewProfile(d._id)} 
+                    className="px-4 py-2.5 rounded-xl border-2 border-slate-700 dark:border-white/50 bg-slate-700 dark:bg-slate-800 hover:bg-slate-800 dark:hover:bg-slate-700 text-white dark:text-white text-sm font-bold shadow-lg"
+                    style={{ color: '#ffffff', fontWeight: '700' }}
+                  >
                     Quick Preview
                   </button>
 
                   <button
                     onClick={() => requestConnect(d._id)}
-                    className="px-3 py-2 rounded-2xl border bg-emerald-600 text-white hover:bg-emerald-700"
+                    className="px-4 py-2.5 rounded-xl border-2 border-emerald-700 dark:border-emerald-500 bg-emerald-600 dark:bg-emerald-600 text-white hover:bg-emerald-700 dark:hover:bg-emerald-700 text-sm font-bold shadow-lg"
+                    style={{ color: '#ffffff', fontWeight: '700' }}
                   >
                     Request Therapy
                   </button>

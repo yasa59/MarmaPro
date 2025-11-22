@@ -207,9 +207,10 @@ router.get('/mine', verifyToken, async (req, res) => {
 /* ============================================================================
  * E) Doctor-only: view a patient's paginated photos
  *    GET /api/photos/by-user/:userId?limit=12&page=1
+ *    GET /api/photos/user/:userId?limit=12&page=1 (alias)
  *    - Must have accepted Connection(doctorId: me, userId, status:'accepted')
  * ========================================================================== */
-router.get('/by-user/:userId', verifyToken, async (req, res) => {
+async function getPatientPhotos(req, res) {
   try {
     const { limit, page, skip } = pageParams(req);
     const me   = req.user.userId;
@@ -233,8 +234,19 @@ router.get('/by-user/:userId', verifyToken, async (req, res) => {
       Photo.countDocuments({ userId })
     ]);
 
+    // Format photos for frontend
+    const formattedItems = items.map(p => ({
+      _id: String(p._id),
+      url: p.filepath || p.annotated || null,
+      filepath: p.filepath,
+      annotated: p.annotated || null,
+      createdAt: p.createdAt,
+      updatedAt: p.updatedAt,
+    }));
+
     res.json({
-      items,
+      photos: formattedItems,
+      items: formattedItems, // Also include items for compatibility
       total,
       page,
       pages: Math.max(1, Math.ceil(total / limit)),
@@ -243,6 +255,9 @@ router.get('/by-user/:userId', verifyToken, async (req, res) => {
     console.error('photos/by-user error', e);
     res.status(500).json({ message: 'Server error' });
   }
-});
+}
+
+router.get('/by-user/:userId', verifyToken, getPatientPhotos);
+router.get('/user/:userId', verifyToken, getPatientPhotos);
 
 module.exports = router;

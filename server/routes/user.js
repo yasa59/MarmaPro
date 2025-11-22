@@ -10,6 +10,8 @@ router.post('/intake-drafts', verifyToken, requireUser, async (req, res) => {
   try {
     const userId = req.user.userId;
     const { doctorId, intake } = req.body;
+    const mongoose = require('mongoose');
+    const oid = (v) => new mongoose.Types.ObjectId(String(v));
     
     if (!doctorId) return res.status(400).json({ message: 'doctorId required' });
     
@@ -17,12 +19,33 @@ router.post('/intake-drafts', verifyToken, requireUser, async (req, res) => {
     const doctor = await User.findOne({ _id: doctorId, role: 'doctor' });
     if (!doctor) return res.status(404).json({ message: 'Doctor not found' });
     
+    // Convert doctorId to ObjectId for consistent storage
+    const doctorIdObj = oid(doctorId);
+    
     // Upsert draft (update if exists, create if not)
-    const draft = await IntakeDraft.findOneAndUpdate(
-      { userId, doctorId },
-      { intake },
-      { new: true, upsert: true }
-    );
+    // Try to find existing draft with either format
+    let draft = await IntakeDraft.findOne({
+      userId: userId,
+      $or: [
+        { doctorId: doctorIdObj },
+        { doctorId: String(doctorId) },
+      ]
+    });
+    
+    if (draft) {
+      // Update existing draft
+      draft.intake = intake;
+      await draft.save();
+      await draft.populate('doctorId', 'name email specialization profilePhoto');
+    } else {
+      // Create new draft
+      draft = await IntakeDraft.create({
+        userId: userId,
+        doctorId: doctorIdObj,
+        intake: intake,
+      });
+      await draft.populate('doctorId', 'name email specialization profilePhoto');
+    }
     
     res.json({ message: 'Draft saved', draft });
   } catch (e) {
@@ -53,12 +76,34 @@ router.get('/intake-drafts/:doctorId', verifyToken, requireUser, async (req, res
   try {
     const userId = req.user.userId;
     const { doctorId } = req.params;
+    const mongoose = require('mongoose');
+    const oid = (v) => new mongoose.Types.ObjectId(String(v));
     
-    const draft = await IntakeDraft.findOne({ userId, doctorId })
+    // Try both ObjectId and string formats for doctorId
+    const doctorIdObj = oid(doctorId);
+    const doctorIdStr = String(doctorId);
+    
+    const draft = await IntakeDraft.findOne({
+      userId: userId,
+      $or: [
+        { doctorId: doctorIdObj },
+        { doctorId: doctorIdStr },
+      ]
+    })
       .populate('doctorId', 'name email specialization profilePhoto')
       .lean();
     
-    if (!draft) return res.status(404).json({ message: 'Draft not found' });
+    // Return empty object instead of 404 since drafts are optional
+    if (!draft) {
+      return res.json({ 
+        _id: null,
+        userId: String(userId),
+        doctorId: doctorId,
+        intake: null,
+        createdAt: null,
+        updatedAt: null
+      });
+    }
     
     res.json(draft);
   } catch (e) {
@@ -72,8 +117,24 @@ router.delete('/intake-drafts/:doctorId', verifyToken, requireUser, async (req, 
   try {
     const userId = req.user.userId;
     const { doctorId } = req.params;
+    const mongoose = require('mongoose');
+    const oid = (v) => new mongoose.Types.ObjectId(String(v));
     
-    await IntakeDraft.findOneAndDelete({ userId, doctorId });
+    // Try both ObjectId and string formats
+    const doctorIdObj = oid(doctorId);
+    const doctorIdStr = String(doctorId);
+    
+    const result = await IntakeDraft.findOneAndDelete({
+      userId: userId,
+      $or: [
+        { doctorId: doctorIdObj },
+        { doctorId: doctorIdStr },
+      ]
+    });
+    
+    if (!result) {
+      return res.status(404).json({ message: 'Draft not found' });
+    }
     
     res.json({ message: 'Draft deleted' });
   } catch (e) {

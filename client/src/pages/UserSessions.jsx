@@ -22,7 +22,9 @@ export default function UserSessions() {
       const { data } = await api.get("/sessions/mine");
       setItems(Array.isArray(data?.items) ? data.items : []);
     } catch (e) {
-      console.error(e);
+      if (import.meta.env.DEV) {
+        console.error(e);
+      }
       setItems([]);
     } finally {
       setBusy(false);

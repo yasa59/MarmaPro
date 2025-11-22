@@ -31,18 +31,75 @@ router.get('/', verifyToken, async (req, res) => {
     console.log('📬 Fetching notifications for user:', {
       recipientId: recipientIdStr,
       recipientIdObj: String(recipientIdObj),
+      recipientIdType: typeof recipientId,
       role: req.user.role,
       limit: limit,
     });
     
     // Query with $or to match both ObjectId and string formats
+    // Also try matching recipientIdStr field
     const recipientMatch = {
       $or: [
         { recipientId: recipientIdObj },
         { recipientId: recipientIdStr },
         { recipientIdStr: recipientIdStr },
+        // Also try matching as string in recipientIdStr field
+        { recipientIdStr: String(recipientIdObj) },
       ],
     };
+
+    // Debug: Check ALL connect_request notifications to see what recipientIds exist
+    const allConnectRequests = await Notification.find({
+      type: 'connect_request',
+    }).sort({ createdAt: -1 }).limit(10).lean();
+    
+    console.log('🔍 Sample connect_request notifications in DB:', {
+      total: allConnectRequests.length,
+      sample: allConnectRequests.slice(0, 5).map(n => ({
+        id: String(n._id),
+        recipientId: String(n.recipientId),
+        recipientIdStr: n.recipientIdStr || 'missing',
+        recipientIdType: typeof n.recipientId,
+        message: n.message,
+        createdAt: n.createdAt,
+        matchesCurrentUser: (
+          String(n.recipientId) === recipientIdStr ||
+          String(n.recipientId) === String(recipientIdObj) ||
+          n.recipientIdStr === recipientIdStr ||
+          n.recipientIdStr === String(recipientIdObj)
+        ),
+      })),
+    });
+
+    // Debug: Check all notifications for this specific doctor (before filtering)
+    const doctorNotifications = await Notification.find({
+      $or: [
+        { recipientId: recipientIdObj },
+        { recipientId: recipientIdStr },
+        { recipientIdStr: recipientIdStr },
+        { recipientIdStr: String(recipientIdObj) },
+      ],
+    }).limit(20).lean();
+    
+    console.log('🔍 All notifications for this doctor (before query filter):', {
+      doctorId: recipientIdStr,
+      doctorIdObj: String(recipientIdObj),
+      totalFound: doctorNotifications.length,
+      notifications: doctorNotifications.map(n => ({
+        id: String(n._id),
+        recipientId: String(n.recipientId),
+        recipientIdStr: n.recipientIdStr || 'missing',
+        type: n.type,
+        message: n.message,
+        createdAt: n.createdAt,
+        matches: (
+          String(n.recipientId) === recipientIdStr ||
+          String(n.recipientId) === String(recipientIdObj) ||
+          n.recipientIdStr === recipientIdStr ||
+          n.recipientIdStr === String(recipientIdObj)
+        ),
+      })),
+    });
 
     const items = await Notification
       .find(recipientMatch)
@@ -53,13 +110,34 @@ router.get('/', verifyToken, async (req, res) => {
 
     console.log('📬 Found notifications:', {
       recipientId: recipientIdStr,
+      recipientIdObj: String(recipientIdObj),
       count: items.length,
       types: items.map(i => i.type),
+      connectRequestCount: items.filter(i => i.type === 'connect_request').length,
       sampleRecipientIds: items.slice(0, 3).map(i => ({
         stored: String(i.recipientId),
+        storedStr: i.recipientIdStr || 'missing',
         storedType: typeof i.recipientId,
+        type: i.type,
       })),
     });
+    
+    // If no notifications found but we expect some, log a warning
+    if (items.length === 0 && req.user.role === 'doctor') {
+      console.warn('⚠️ No notifications found for doctor, but checking if any exist in DB...');
+      const allDoctorNotifs = await Notification.find({
+        type: 'connect_request',
+      }).limit(5).lean();
+      console.log('🔍 Sample connect_request notifications in DB:', {
+        total: allDoctorNotifs.length,
+        sample: allDoctorNotifs.slice(0, 3).map(n => ({
+          recipientId: String(n.recipientId),
+          recipientIdStr: n.recipientIdStr || 'missing',
+          doctorId: recipientIdStr,
+          matches: String(n.recipientId) === recipientIdStr || n.recipientIdStr === recipientIdStr,
+        })),
+      });
+    }
 
     // Transform items to include actor info
     const transformed = items.map(item => ({
@@ -94,14 +172,49 @@ router.get('/unread-count', verifyToken, async (req, res) => {
     const recipientIdObj = oid(recipientId);
     const recipientIdStr = String(recipientId);
     
+    console.log('📊 Unread count query:', {
+      recipientId: recipientIdStr,
+      recipientIdObj: String(recipientIdObj),
+      role: req.user.role,
+    });
+    
+    // Try multiple query formats to ensure we catch all notifications
     const count = await Notification.countDocuments({
+      $and: [
+        {
+          $or: [
+            { recipientId: recipientIdObj },
+            { recipientId: recipientIdStr },
+            { recipientIdStr: recipientIdStr },
+            { recipientIdStr: String(recipientIdObj) },
+          ],
+        },
+        {
+          $or: [
+            { read: false },
+            { read: { $exists: false } }, // Handle undefined/null as unread
+          ],
+        },
+      ],
+    });
+    
+    // Also check total notifications for debugging
+    const totalCount = await Notification.countDocuments({
       $or: [
         { recipientId: recipientIdObj },
         { recipientId: recipientIdStr },
         { recipientIdStr: recipientIdStr },
+        { recipientIdStr: String(recipientIdObj) },
       ],
-      read: false,
     });
+    
+    console.log('📊 Unread count result:', {
+      recipientId: recipientIdStr,
+      unreadCount: count,
+      totalCount: totalCount,
+      role: req.user.role,
+    });
+    
     res.json({ count });
   } catch (e) {
     console.error('GET /notifications/unread-count error', e);
@@ -159,32 +272,34 @@ router.post('/mark-read', verifyToken, async (req, res) => {
 
 /**
  * POST /api/notifications/test
- * Dev helper to create a test notification for yourself.
- * Response: created notification doc
+ * Dev helper to create a test notification - only available in development
  */
-router.post('/test', verifyToken, async (req, res) => {
-  try {
-    const recipientObj = oid(req.user.userId);
-    const row = await Notification.create({
-      recipientId: recipientObj,
-      recipientIdStr: String(recipientObj),
-      type: 'connect_request',
-      message: 'Test notification',
-      read: false,
-      meta: {},
-    });
-    res.json(row);
-  } catch (e) {
-    console.error('POST /notifications/test error', e);
-    res.status(500).json({ message: 'server_error' });
-  }
-});
+if (process.env.NODE_ENV !== 'production') {
+  router.post('/test', verifyToken, async (req, res) => {
+    try {
+      const recipientObj = oid(req.user.userId);
+      const row = await Notification.create({
+        recipientId: recipientObj,
+        recipientIdStr: String(recipientObj),
+        type: 'connect_request',
+        message: 'Test notification',
+        read: false,
+        meta: {},
+      });
+      res.json(row);
+    } catch (e) {
+      console.error('POST /notifications/test error', e);
+      res.status(500).json({ message: 'server_error' });
+    }
+  });
+}
 
 /**
  * GET /api/notifications/debug
- * Debug endpoint to see all notifications for current user (both formats)
+ * Debug endpoint - only available in development
  */
-router.get('/debug', verifyToken, async (req, res) => {
+if (process.env.NODE_ENV !== 'production') {
+  router.get('/debug', verifyToken, async (req, res) => {
   try {
     const recipientId = req.user.userId;
     const recipientIdObj = oid(recipientId);
@@ -227,6 +342,7 @@ router.get('/debug', verifyToken, async (req, res) => {
     console.error('GET /notifications/debug error', e);
     res.status(500).json({ message: 'server_error' });
   }
-});
+  });
+}
 
 module.exports = router;

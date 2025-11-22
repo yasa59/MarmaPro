@@ -281,6 +281,119 @@ export default function Landing() {
             </Link>
           </div>
         </motion.div>
+
+        {/* Contact & Feedback Section */}
+        <motion.section
+          className="mt-20 mb-10"
+          variants={itemVariants}
+        >
+          <div className="glass-strong rounded-3xl p-8 md:p-12">
+            <motion.h2
+              className="text-3xl md:text-4xl font-bold mb-8 gradient-text text-center"
+              variants={itemVariants}
+            >
+              Get in Touch
+            </motion.h2>
+            <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
+              {/* Contact Button */}
+              <motion.a
+                href="#contact-info"
+                className="group relative overflow-hidden rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-500 hover:via-indigo-500 hover:to-purple-500 px-8 py-4 text-white font-semibold text-lg shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40 transition-all duration-300 flex items-center gap-3 min-w-[280px] justify-center"
+                variants={itemVariants}
+                whileHover={{ scale: 1.05, y: -4 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={(e) => {
+                  e.preventDefault();
+                  const contactInfo = document.getElementById('contact-info');
+                  if (contactInfo) {
+                    contactInfo.style.display = contactInfo.style.display === 'none' ? 'block' : 'none';
+                  }
+                }}
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+                <span>Contact Us</span>
+              </motion.a>
+
+              {/* Feedback Button */}
+              <motion.a
+                href="mailto:yasasamarasekara0@gmail.com?subject=Feedback%20-%20iMarma%20Therapy&body=Hello,%0D%0A%0D%0AI%20would%20like%20to%20share%20my%20feedback%20about%20iMarma%20Therapy:%0D%0A%0D%0A"
+                className="group relative overflow-hidden rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:via-teal-500 hover:to-cyan-500 px-8 py-4 text-white font-semibold text-lg shadow-lg shadow-emerald-500/30 hover:shadow-xl hover:shadow-emerald-500/40 transition-all duration-300 flex items-center gap-3 min-w-[280px] justify-center"
+                variants={itemVariants}
+                whileHover={{ scale: 1.05, y: -4 }}
+                whileTap={{ scale: 0.98 }}
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                </svg>
+                <span>Share Feedback</span>
+              </motion.a>
+            </div>
+
+            {/* Contact Info (Hidden by default, shown when Contact button is clicked) */}
+            <motion.div
+              id="contact-info"
+              className="mt-8 hidden"
+              variants={itemVariants}
+              initial="hidden"
+              animate="visible"
+            >
+              <div className="glass rounded-2xl p-6 md:p-8">
+                <div className="grid md:grid-cols-2 gap-6">
+                  {/* Email */}
+                  <motion.a
+                    href="mailto:yasasamarasekara0@gmail.com"
+                    className="group flex items-center gap-4 p-4 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 transition-all duration-300"
+                    variants={itemVariants}
+                    whileHover={{ scale: 1.02, x: 4 }}
+                  >
+                    <div className="w-12 h-12 rounded-xl bg-blue-500/20 flex items-center justify-center group-hover:bg-blue-500/30 transition-colors">
+                      <svg className="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                      </svg>
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm text-slate-400 mb-1">Email Address</p>
+                      <p className="text-lg font-semibold text-white group-hover:text-blue-400 transition-colors">
+                        yasasamarasekara0@gmail.com
+                      </p>
+                    </div>
+                    <svg className="w-5 h-5 text-slate-400 group-hover:text-blue-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </motion.a>
+
+                  {/* Phone */}
+                  <motion.a
+                    href="tel:+94764742106"
+                    className="group flex items-center gap-4 p-4 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 transition-all duration-300"
+                    variants={itemVariants}
+                    whileHover={{ scale: 1.02, x: 4 }}
+                  >
+                    <div className="w-12 h-12 rounded-xl bg-emerald-500/20 flex items-center justify-center group-hover:bg-emerald-500/30 transition-colors">
+                      <svg className="w-6 h-6 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                      </svg>
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm text-slate-400 mb-1">Phone Number</p>
+                      <p className="text-lg font-semibold text-white group-hover:text-emerald-400 transition-colors">
+                        +94 764742106
+                      </p>
+                    </div>
+                    <svg className="w-5 h-5 text-slate-400 group-hover:text-emerald-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </motion.a>
+                </div>
+                <p className="text-center text-slate-400 text-sm mt-6">
+                  We're here to help! Reach out to us anytime.
+                </p>
+              </div>
+            </motion.div>
+          </div>
+        </motion.section>
       </motion.div>
     </div>
   );

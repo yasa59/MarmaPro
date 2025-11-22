@@ -17,14 +17,22 @@ const { verifyToken, requireDoctor, requireUser } = require('../middleware/auth'
 const oid = (v) => new mongoose.Types.ObjectId(String(v));
 
 function doctorMatch(userId) {
-  const idObj = oid(userId);
+  // userId can be ObjectId or string - handle both
+  const idObj = userId instanceof mongoose.Types.ObjectId ? userId : oid(String(userId));
   const idStr = String(userId);
+  const idObjStr = String(idObj);
+  
+  // Return query that matches both doctorId and doctor fields in all formats
   return {
     $or: [
+      // Match doctorId field
       { doctorId: idObj },
-      { doctor: idObj },
       { doctorId: idStr },
+      { doctorId: idObjStr },
+      // Match doctor field (legacy)
+      { doctor: idObj },
       { doctor: idStr },
+      { doctor: idObjStr },
     ],
   };
 }
@@ -82,16 +90,41 @@ async function attachLatestFootPhoto(sessionDoc) {
    - Saves BOTH field shapes
    - Creates/updates a pending Session tied to the request (with optional intake)
 ---------------------------------------------- */
-async function createOrPendConnection({ userId, doctorId, intake }) {
-  const doctor = await User.findOne({ _id: doctorId, role: 'doctor', isApproved: true }).select('_id').lean();
-  if (!doctor) {
-    return { ok: false, status: 404, message: 'Doctor not found/approved' };
+async function createOrPendConnection({ userId, doctorId, intake, doctorExactId }) {
+  // Use doctorExactId if provided (from database query), otherwise query again
+  let doctor;
+  let doctorActualId;
+  
+  if (doctorExactId) {
+    // Use the exact ObjectId passed in (matches JWT token)
+    doctorActualId = doctorExactId;
+    doctor = { _id: doctorExactId };
+    console.log('✅ Using provided doctorExactId:', String(doctorActualId));
+  } else {
+    // Fallback: query database
+    doctor = await User.findOne({ _id: doctorId, role: 'doctor', isApproved: true }).select('_id').lean();
+    if (!doctor) {
+      return { ok: false, status: 404, message: 'Doctor not found/approved' };
+    }
+    doctorActualId = doctor._id; // This is the ObjectId from database
   }
 
-  const doctorStr = String(doctor._id || doctorId);
-  const doctorObjId = oid(doctorStr);
+  // CRITICAL: Use doctorActualId (ObjectId) for notifications - this matches JWT token
+  // The JWT contains user._id as ObjectId, so notifications MUST use the same ObjectId
+  const doctorStr = String(doctorActualId);
+  const doctorObjId = doctorActualId instanceof mongoose.Types.ObjectId 
+    ? doctorActualId 
+    : oid(String(doctorActualId)); // Ensure it's an ObjectId
   const userStr = String(userId);
   const userObjId = oid(userStr);
+  
+  console.log('🔑 createOrPendConnection - Using doctor ID:', {
+    doctorActualId: String(doctorActualId),
+    doctorStr: doctorStr,
+    doctorObjId: String(doctorObjId),
+    isObjectId: doctorActualId instanceof mongoose.Types.ObjectId,
+    doctorObjIdType: doctorObjId instanceof mongoose.Types.ObjectId ? 'ObjectId' : typeof doctorObjId,
+  });
 
   const userFieldValues = [userObjId, userStr];
   const doctorFieldValues = [doctorObjId, doctorStr];
@@ -128,7 +161,34 @@ async function createOrPendConnection({ userId, doctorId, intake }) {
       _id: String(conn._id),
       userId: String(conn.userId || conn.user),
       doctorId: String(conn.doctorId || conn.doctor),
+      doctorIdType: typeof conn.doctorId,
+      doctorType: typeof conn.doctor,
       status: conn.status,
+      allFields: {
+        userId: conn.userId ? String(conn.userId) : null,
+        user: conn.user ? String(conn.user) : null,
+        doctorId: conn.doctorId ? String(conn.doctorId) : null,
+        doctor: conn.doctor ? String(conn.doctor) : null,
+      },
+    });
+    
+    // VERIFY: Immediately check if connection can be found by doctorMatch
+    // Try with both ObjectId and string formats
+    const testMatch1 = { status: 'pending', ...doctorMatch(doctorObjId) };
+    const testMatch2 = { status: 'pending', ...doctorMatch(doctorStr) };
+    const testFind1 = await Connection.findOne(testMatch1).lean();
+    const testFind2 = await Connection.findOne(testMatch2).lean();
+    const testFind = testFind1 || testFind2;
+    
+    console.log('🔍 VERIFY - Connection can be found by doctorMatch:', {
+      found: !!testFind,
+      connectionId: testFind ? String(testFind._id) : 'NOT FOUND',
+      foundWithObjId: !!testFind1,
+      foundWithString: !!testFind2,
+      savedDoctorId: String(conn.doctorId || conn.doctor),
+      savedDoctorIdType: typeof (conn.doctorId || conn.doctor),
+      matchQuery1: JSON.stringify(testMatch1, null, 2),
+      matchQuery2: JSON.stringify(testMatch2, null, 2),
     });
 
     // Create pending session
@@ -173,7 +233,21 @@ async function createOrPendConnection({ userId, doctorId, intake }) {
         await attachLatestFootPhoto(session);
         await session.save();
         sessionId = String(session._id);
-        console.log('📋 Created session for therapy request:', sessionId);
+        console.log('📋 Created session for therapy request:', {
+          sessionId: sessionId,
+          hasIntake: !!session.intake,
+          intakeFields: session.intake ? Object.keys(session.intake) : [],
+          userId: String(session.userId),
+          doctorId: String(session.doctorId),
+        });
+        
+        // Verify session was saved with intake data
+        const verifySession = await Session.findById(session._id).lean();
+        console.log('🔍 Verification - Session saved with intake:', {
+          found: !!verifySession,
+          hasIntake: !!verifySession?.intake,
+          intakeFields: verifySession?.intake ? Object.keys(verifySession.intake) : [],
+        });
       } else {
         // Update intake if provided and session exists
         if (intake) {
@@ -199,6 +273,102 @@ async function createOrPendConnection({ userId, doctorId, intake }) {
     } catch (e) {
       console.error('⚠️ Session creation failed:', e.message);
     }
+
+    // Create notification for new connection
+    // CRITICAL: Use the same ID format that the doctor will have in their JWT token
+    // The JWT contains user._id which is an ObjectId, so we should use ObjectId for recipientId
+    let notificationCreated = false;
+    try {
+      const Notification = require('../models/Notification');
+      
+      // CRITICAL: Use doctorObjId (ObjectId) - this MUST match what's in the doctor's JWT token
+      // The JWT token has userId: user._id (ObjectId), so recipientId must be the same ObjectId
+      const notificationRecipientId = doctorObjId; // Use the ObjectId directly
+      const notificationRecipientIdStr = doctorStr; // String version for querying
+      
+      console.log('🔔 Attempting to create notification for new connection:', {
+        recipientId: String(notificationRecipientId),
+        recipientIdStr: notificationRecipientIdStr,
+        actorId: String(userObjId),
+        doctorId: doctorStr,
+        doctorActualId: String(doctorActualId),
+        isObjectId: notificationRecipientId instanceof mongoose.Types.ObjectId,
+      });
+      
+      const notif = await Notification.create({
+        recipientId: notificationRecipientId, // ObjectId - matches JWT token
+        recipientIdStr: notificationRecipientIdStr, // String version for queries
+        actorId: userObjId,
+        type: 'connect_request',
+        message: intake 
+          ? 'A patient sent a therapy request with intake information'
+          : 'A patient sent a therapy request',
+        meta: {
+          connectionId: conn._id.toString(),
+          userId: userStr,
+          sessionId: sessionId || null,
+        },
+      });
+      
+      notificationCreated = true;
+      console.log('✅ Created notification for new connection:', {
+        notificationId: String(notif._id),
+        recipientId: String(notif.recipientId),
+        recipientIdStr: notif.recipientIdStr,
+        recipientIdType: typeof notif.recipientId,
+        doctorId: doctorStr,
+        sessionId: sessionId || null,
+      });
+      
+      // Verify it was saved correctly and can be queried
+      const verify = await Notification.findById(notif._id).lean();
+      console.log('🔍 Verification - Notification saved:', {
+        found: !!verify,
+        recipientId: verify ? String(verify.recipientId) : 'N/A',
+        recipientIdStr: verify?.recipientIdStr || 'N/A',
+      });
+      
+      // Test query to see if notification can be found by doctor ID
+      // The doctor's JWT has userId as ObjectId, so we test with ObjectId first
+      const testQuery = await Notification.findOne({
+        $or: [
+          { recipientId: notificationRecipientId }, // ObjectId - matches JWT
+          { recipientId: doctorObjId }, // Also try converted ObjectId
+          { recipientId: doctorStr }, // String version (fallback)
+          { recipientIdStr: notificationRecipientIdStr }, // String field
+          { recipientIdStr: doctorStr }, // Original string
+        ],
+        type: 'connect_request',
+      }).sort({ createdAt: -1 }).lean();
+      
+      console.log('🔍 Test query - Can find notification for doctor:', {
+        found: !!testQuery,
+        notificationId: testQuery ? String(testQuery._id) : 'NOT FOUND',
+        createdNotificationId: String(notif._id),
+        matches: testQuery ? String(testQuery._id) === String(notif._id) : false,
+        recipientId: testQuery ? String(testQuery.recipientId) : 'N/A',
+        recipientIdStr: testQuery?.recipientIdStr || 'N/A',
+        doctorId: doctorStr,
+        doctorActualId: String(doctorActualId),
+        queryUsedRecipientId: String(notificationRecipientId),
+      });
+    } catch (e) {
+      console.error('❌ Notification create failed for new connection:', {
+        error: e.message,
+        stack: e.stack,
+        doctorId: doctorStr,
+        doctorObjId: String(doctorObjId),
+      });
+      notificationCreated = false;
+    }
+
+    return {
+      ok: true,
+      message: 'Connection request sent',
+      connectionId: String(conn._id),
+      sessionId: sessionId,
+      notificationCreated: notificationCreated,
+    };
   } else if (conn.status === 'rejected') {
     // Re-pend rejected connection
     conn.status = 'pending';
@@ -253,10 +423,21 @@ async function createOrPendConnection({ userId, doctorId, intake }) {
     }
 
     try {
-      // Ensure doctorId is a valid ObjectId
+      // CRITICAL: Use doctorObjId (ObjectId) - matches JWT token format
+      const notificationRecipientId = doctorObjId; // ObjectId - matches JWT
+      const notificationRecipientIdStr = doctorStr; // String version
+      
+      console.log('🔔 Creating notification for re-pended connection:', {
+        recipientId: String(notificationRecipientId),
+        recipientIdStr: notificationRecipientIdStr,
+        doctorId: doctorStr,
+        hasIntake: !!intake,
+        isObjectId: notificationRecipientId instanceof mongoose.Types.ObjectId,
+      });
+      
       const notif = await Notification.create({
-        recipientId: doctorObjId,
-        recipientIdStr: doctorStr,
+        recipientId: notificationRecipientId, // ObjectId - matches JWT token
+        recipientIdStr: notificationRecipientIdStr, // String version
         actorId: userObjId,
         type: 'connect_request',
         message: intake 
@@ -268,13 +449,15 @@ async function createOrPendConnection({ userId, doctorId, intake }) {
           sessionId: sessionId || null,
         },
       });
-      console.log('📬 Created notification for re-pended request:', {
+      console.log('✅ Created notification for re-pended request:', {
         notificationId: String(notif._id),
         recipientId: String(notif.recipientId),
+        recipientIdStr: notif.recipientIdStr,
         doctorIdProvided: String(doctorId),
+        doctorActualId: String(doctorActualId),
       });
     } catch (e) {
-      console.error('❌ Notification create failed:', {
+      console.error('❌ Notification create failed for re-pend:', {
         error: e.message,
         stack: e.stack,
         doctorId: String(doctorId),
@@ -282,7 +465,106 @@ async function createOrPendConnection({ userId, doctorId, intake }) {
       // Don't fail the request if notification fails, but log the error
     }
   } else if (conn.status === 'accepted') {
-    return { ok: true, message: 'Already connected to this doctor', already: true };
+    // If connection is accepted but user is sending new intake data, treat it as a new request
+    // This allows users to send updated intake information even if already connected
+    // Check if intake has any meaningful data (not just an empty object)
+    const hasIntakeData = intake && (
+      intake.fullName || 
+      intake.painDescription || 
+      intake.phone ||
+      Object.keys(intake).length > 0
+    );
+    
+    if (hasIntakeData) {
+      console.log('🔄 Connection is accepted but user sent new intake data - updating to pending and creating notification');
+      conn.status = 'pending';
+      conn.requestedAt = new Date();
+      await conn.save();
+      
+      // Update or create session with intake data
+      try {
+        let session = await Session.findOne({
+          userId: userFieldQuery,
+          doctorId: doctorFieldQuery,
+        }).sort({ createdAt: -1 });
+        
+        if (!session) {
+          session = new Session({
+            userId: userObjId,
+            doctorId: doctorObjId,
+            status: 'pending',
+            marmaPlan: [
+              { name: 'Marma 1', durationSec: 60, notes: '' },
+              { name: 'Marma 2', durationSec: 60, notes: '' },
+              { name: 'Marma 3', durationSec: 60, notes: '' },
+              { name: 'Marma 4', durationSec: 60, notes: '' },
+            ],
+          });
+        }
+        
+        session.status = 'pending';
+        session.intake = {
+          fullName: intake.fullName || '',
+          age: intake.age ? Number(intake.age) : null,
+          gender: intake.gender || '',
+          livingArea: intake.livingArea || '',
+          bloodType: intake.bloodType || '',
+          painDescription: intake.painDescription || '',
+          painLocation: intake.painLocation || '',
+          painDuration: intake.painDuration || '',
+          painSeverity: intake.painSeverity || '',
+          painArea: intake.painArea || intake.painLocation || '',
+          problemType: intake.problemType || '',
+          phone: intake.phone || '',
+          otherNotes: intake.otherNotes || '',
+        };
+        await session.save();
+        sessionId = String(session._id);
+        console.log('📋 Updated session with new intake data:', {
+          sessionId: sessionId,
+          hasIntake: !!session.intake,
+        });
+      } catch (e) {
+        console.error('⚠️ Session update failed for accepted connection:', e.message);
+      }
+      
+      // Create notification for the new request
+      try {
+        const Notification = require('../models/Notification');
+        const notificationRecipientId = doctorObjId;
+        const notificationRecipientIdStr = doctorStr;
+        
+        const notif = await Notification.create({
+          recipientId: notificationRecipientId,
+          recipientIdStr: notificationRecipientIdStr,
+          actorId: userObjId,
+          type: 'connect_request',
+          message: 'A patient sent a new therapy request with updated intake information',
+          meta: {
+            connectionId: conn._id.toString(),
+            userId: userStr,
+            sessionId: sessionId || null,
+          },
+        });
+        console.log('✅ Created notification for new request from accepted connection:', {
+          notificationId: String(notif._id),
+          recipientId: String(notif.recipientId),
+        });
+      } catch (e) {
+        console.error('❌ Notification create failed:', e.message);
+      }
+      
+      return {
+        ok: true,
+        message: 'New therapy request sent with updated information',
+        connectionId: String(conn._id),
+        sessionId: sessionId,
+        notificationCreated: true,
+      };
+    } else {
+      // No intake data provided, just return that they're already connected
+      return { ok: true, message: 'Already connected to this doctor', already: true };
+    }
   } else {
     // Connection already exists and is pending - update session with intake if provided
     if (intake) {
@@ -311,7 +593,19 @@ async function createOrPendConnection({ userId, doctorId, intake }) {
           };
           await session.save();
           sessionId = String(session._id);
-          console.log('📝 Updated existing pending session intake:', sessionId);
+          console.log('📝 Updated existing pending session intake:', {
+            sessionId: sessionId,
+            hasIntake: !!session.intake,
+            intakeFields: session.intake ? Object.keys(session.intake) : [],
+          });
+          
+          // Verify session was updated
+          const verifySession = await Session.findById(session._id).lean();
+          console.log('🔍 Verification - Session updated with intake:', {
+            found: !!verifySession,
+            hasIntake: !!verifySession?.intake,
+            intakeFields: verifySession?.intake ? Object.keys(verifySession.intake) : [],
+          });
         } else {
           // Create session if it doesn't exist
           try {
@@ -369,13 +663,30 @@ async function createOrPendConnection({ userId, doctorId, intake }) {
       }
     }
 
-    // Always create notification for existing pending connections when intake is provided
+    // ALWAYS create notification for existing pending connections (especially when intake is provided)
+    // This ensures doctors are notified even if they already have a pending request
+    // CRITICAL: Use the doctor's actual _id from database (matches JWT token)
     let notificationCreated = false;
     try {
-      // Ensure doctorId is a valid ObjectId
+      // CRITICAL: Use doctorObjId (ObjectId) - this MUST match what's in the doctor's JWT token
+      // The JWT token has userId: user._id (ObjectId), so recipientId must be the same ObjectId
+      const notificationRecipientId = doctorObjId; // Use the ObjectId directly
+      const notificationRecipientIdStr = doctorStr; // String version for querying
+      
+      console.log('🔔 Creating notification for existing pending connection:', {
+        recipientId: String(notificationRecipientId),
+        recipientIdStr: notificationRecipientIdStr,
+        actorId: String(userObjId),
+        doctorId: doctorStr,
+        doctorActualId: String(doctorActualId),
+        hasIntake: !!intake,
+        connectionId: String(conn._id),
+        isObjectId: notificationRecipientId instanceof mongoose.Types.ObjectId,
+      });
+      
       const notif = await Notification.create({
-        recipientId: doctorObjId,
-        recipientIdStr: doctorStr,
+        recipientId: notificationRecipientId, // ObjectId - matches JWT token
+        recipientIdStr: notificationRecipientIdStr, // String version for queries
         actorId: userObjId,
         type: 'connect_request',
         message: intake 
@@ -388,19 +699,48 @@ async function createOrPendConnection({ userId, doctorId, intake }) {
         },
       });
       notificationCreated = true;
-      console.log('📬 Created notification for existing pending request:', {
+      console.log('✅ Created notification for existing pending request:', {
         notificationId: String(notif._id),
         recipientId: String(notif.recipientId),
+        recipientIdStr: notif.recipientIdStr,
         recipientIdType: typeof notif.recipientId,
         doctorIdProvided: String(doctorId),
         sessionId: sessionId || null,
       });
+      
+      // Verify notification can be queried immediately
+      const verify = await Notification.findById(notif._id).lean();
+      console.log('🔍 Verification - Notification for existing connection saved:', {
+        found: !!verify,
+        recipientId: verify ? String(verify.recipientId) : 'N/A',
+        recipientIdStr: verify?.recipientIdStr || 'N/A',
+      });
+      
+      // Test query to ensure doctor can find it
+      const testQuery = await Notification.findOne({
+        $or: [
+          { recipientId: doctorObjId },
+          { recipientId: doctorStr },
+          { recipientIdStr: doctorStr },
+        ],
+        type: 'connect_request',
+      }).sort({ createdAt: -1 }).lean();
+      
+      console.log('🔍 Test query - Can find notification for doctor:', {
+        found: !!testQuery,
+        notificationId: testQuery ? String(testQuery._id) : 'NOT FOUND',
+        matchesCreated: testQuery ? String(testQuery._id) === String(notif._id) : false,
+        recipientId: testQuery ? String(testQuery.recipientId) : 'N/A',
+        recipientIdStr: testQuery?.recipientIdStr || 'N/A',
+        doctorId: doctorStr,
+      });
     } catch (e) {
-      console.error('❌ Notification create failed:', {
+      console.error('❌ Notification create failed for existing connection:', {
         error: e.message,
         stack: e.stack,
         doctorId: String(doctorId),
         doctorIdType: typeof doctorId,
+        doctorObjId: String(doctorObjId),
       });
       // Don't fail the request if notification fails, but log the error
     }
@@ -415,48 +755,11 @@ async function createOrPendConnection({ userId, doctorId, intake }) {
     };
   }
 
-  // Create notification for new connections
-  let notificationCreated = false;
-  try {
-    // Ensure doctorId is a valid ObjectId
-    const notif = await Notification.create({
-      recipientId: doctorObjId,
-      recipientIdStr: doctorStr,
-      actorId: userObjId,
-      type: 'connect_request',
-      message: intake 
-        ? 'A patient sent a therapy request with intake information'
-        : 'A patient requested to connect with you',
-      meta: {
-        connectionId: conn._id.toString(),
-        userId: userStr,
-        sessionId: sessionId || null,
-      },
-    });
-    notificationCreated = true;
-    console.log('📬 Created notification for new request:', {
-      notificationId: String(notif._id),
-      recipientId: String(notif.recipientId),
-      recipientIdType: typeof notif.recipientId,
-      doctorIdProvided: String(doctorId),
-      sessionId: sessionId || null,
-    });
-  } catch (e) {
-    console.error('❌ Notification create failed:', {
-      error: e.message,
-      stack: e.stack,
-      doctorId: String(doctorId),
-      doctorIdType: typeof doctorId,
-    });
-    // Don't fail the request if notification fails, but log the error
-  }
-
+  // This should never be reached, but just in case
   return {
-    ok: true,
-    message: 'Request sent to doctor',
-    connectionId: conn._id.toString(),
-    sessionId: sessionId || null,
-    notificationCreated,
+    ok: false,
+    status: 500,
+    message: 'Unexpected connection state',
   };
 }
 
@@ -514,8 +817,79 @@ router.get('/public', async (req, res) => {
 });
 
 /* ---------------------------------------------
+   USER: Get connected doctor's full profile
+   GET /api/doctors/:id/profile/connected
+   Returns full doctor profile for patients who are connected
+   NOTE: This must come BEFORE /:id/profile to match correctly
+---------------------------------------------- */
+router.get('/:id/profile/connected', verifyToken, requireUser, async (req, res) => {
+  try {
+    const doctorId = req.params.id;
+    const userId = req.user.userId;
+    const doctorIdObj = oid(doctorId);
+    const userIdObj = oid(userId);
+
+    // Check if user is connected to this doctor
+    const conn = await Connection.findOne({
+      $or: [
+        { doctorId: doctorIdObj, userId: userIdObj },
+        { doctor: doctorIdObj, user: userIdObj },
+      ],
+      status: { $in: ['accepted', 'approved'] }
+    }).lean();
+
+    if (!conn) {
+      return res.status(403).json({ message: 'Not connected to this doctor' });
+    }
+
+    // Get doctor's User data
+    const doctor = await User.findOne({ _id: doctorId, role: 'doctor' })
+      .select('_id name email profilePhoto gender age specialization qualifications bio documentPath createdAt')
+      .lean();
+
+    if (!doctor) {
+      return res.status(404).json({ message: 'Doctor not found' });
+    }
+
+    // Get doctor's Profile data (if exists)
+    const Profile = require('../models/Profile');
+    const profile = await Profile.findOne({ userId: doctorIdObj }).lean();
+
+    // Combine User and Profile data
+    const avatarUrl = profile?.avatar || doctor.profilePhoto || null;
+
+    res.json({
+      id: String(doctor._id),
+      _id: String(doctor._id),
+      name: doctor.name,
+      email: doctor.email,
+      profilePhoto: avatarUrl,
+      avatarUrl: avatarUrl,
+      gender: doctor.gender || profile?.gender || null,
+      age: doctor.age || null,
+      specialization: doctor.specialization || null,
+      qualifications: doctor.qualifications || null,
+      bio: doctor.bio || null,
+      documentPath: doctor.documentPath || null,
+      // Profile extras
+      title: profile?.title || null,
+      fullName: profile?.fullName || null,
+      phone: profile?.phone || null,
+      createdAt: doctor.createdAt,
+      // Connection info
+      connectionStatus: conn.status,
+      connectedAt: conn.createdAt || conn.requestedAt,
+    });
+  } catch (e) {
+    console.error('GET /doctors/:id/profile/connected error', e);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+/* ---------------------------------------------
    PUBLIC: get a doctor's public profile
    GET /api/doctors/:id/profile
+   NOTE: This must come AFTER /:id/profile/connected to match correctly
 ---------------------------------------------- */
 router.get('/:id/profile', async (req, res) => {
   try {
@@ -568,35 +942,133 @@ router.post('/request', verifyToken, requireUser, async (req, res) => {
       match: String(doctorId) === actualDoctorId,
     });
 
-    const result = await createOrPendConnection({ userId, doctorId: actualDoctorId, intake });
+    // CRITICAL: Get the doctor's actual ObjectId from database
+    // This MUST match what's in the doctor's JWT token (user._id)
+    const doctorDbRecord = await User.findById(actualDoctorId).select('_id').lean();
+    if (!doctorDbRecord) {
+      console.error('❌ Doctor record not found after verification');
+      return res.status(404).json({ message: 'Doctor not found' });
+    }
+    
+    // Use the exact ObjectId from database (this is what's in JWT token)
+    const doctorExactId = doctorDbRecord._id;
+    console.log('🔑 Using exact doctor ID from database:', {
+      doctorId: String(doctorExactId),
+      actualDoctorId: actualDoctorId,
+      match: String(doctorExactId) === actualDoctorId,
+    });
+    
+    console.log('🔧 Calling createOrPendConnection with:', {
+      userId: String(userId),
+      doctorId: String(doctorExactId),
+      doctorExactId: String(doctorExactId),
+      hasIntake: !!intake,
+    });
+    
+    const result = await createOrPendConnection({ 
+      userId, 
+      doctorId: String(doctorExactId), // Pass as string, function will convert
+      doctorExactId: doctorExactId, // Pass the ObjectId directly
+      intake 
+    });
+    
+    console.log('🔧 createOrPendConnection result:', {
+      ok: result.ok,
+      message: result.message,
+      connectionId: result.connectionId,
+      sessionId: result.sessionId,
+      notificationCreated: result.notificationCreated,
+    });
     
     if (!result.ok) {
       console.error('❌ createOrPendConnection failed:', result.message);
       return res.status(result.status || 500).json({ message: result.message });
     }
+    
+    // VERIFY: Check if connection was actually created
+    const verifyConnection = await Connection.findById(result.connectionId).lean();
+    console.log('🔍 VERIFY - Connection created:', {
+      found: !!verifyConnection,
+      connectionId: result.connectionId,
+      doctorId: verifyConnection ? String(verifyConnection.doctorId || verifyConnection.doctor) : 'N/A',
+      userId: verifyConnection ? String(verifyConnection.userId || verifyConnection.user) : 'N/A',
+      status: verifyConnection?.status,
+      matchesDoctor: verifyConnection ? (
+        String(verifyConnection.doctorId || verifyConnection.doctor) === actualDoctorId ||
+        String(verifyConnection.doctorId || verifyConnection.doctor) === String(doctorExactId)
+      ) : false,
+    });
 
-    // Verify notification was created
+    // CRITICAL: Verify notification was created and can be queried by doctor
+    console.log('🔍 Verifying notification creation:', {
+      notificationCreated: result.notificationCreated,
+      doctorId: actualDoctorId,
+      connectionId: result.connectionId,
+      sessionId: result.sessionId,
+    });
+    
     if (result.notificationCreated !== false) {
       try {
         const Notification = require('../models/Notification');
         const doctorObjId = oid(actualDoctorId);
+        
+        // Wait a moment for database to commit
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        // Try multiple query formats to find the notification
         const recentNotif = await Notification.findOne({
           $or: [
             { recipientId: doctorObjId },
             { recipientId: actualDoctorId },
+            { recipientIdStr: actualDoctorId },
+            { recipientIdStr: String(doctorObjId) },
           ],
           type: 'connect_request',
         }).sort({ createdAt: -1 }).lean();
         
-        console.log('🔍 Verification - Latest notification for doctor:', {
+        console.log('🔍 Post-request verification - Latest notification for doctor:', {
           doctorId: actualDoctorId,
+          doctorIdObj: String(doctorObjId),
           notificationId: recentNotif ? String(recentNotif._id) : 'NOT FOUND',
           recipientId: recentNotif ? String(recentNotif.recipientId) : 'N/A',
+          recipientIdStr: recentNotif?.recipientIdStr || 'N/A',
           createdAt: recentNotif?.createdAt || 'N/A',
+          notificationCreated: result.notificationCreated,
+          matchesDoctorId: recentNotif ? (
+            String(recentNotif.recipientId) === actualDoctorId ||
+            String(recentNotif.recipientId) === String(doctorObjId) ||
+            recentNotif.recipientIdStr === actualDoctorId
+          ) : false,
         });
+        
+        // Also check total notifications for this doctor
+        const totalNotifs = await Notification.countDocuments({
+          $or: [
+            { recipientId: doctorObjId },
+            { recipientId: actualDoctorId },
+            { recipientIdStr: actualDoctorId },
+            { recipientIdStr: String(doctorObjId) },
+          ],
+        });
+        console.log('🔍 Total notifications for doctor:', {
+          doctorId: actualDoctorId,
+          totalCount: totalNotifs,
+        });
+        
+        // If notification not found, log a warning
+        if (!recentNotif) {
+          console.error('❌ CRITICAL: Notification was created but cannot be found by doctor ID!', {
+            doctorId: actualDoctorId,
+            doctorIdObj: String(doctorObjId),
+            notificationCreated: result.notificationCreated,
+          });
+        }
       } catch (e) {
-        console.error('⚠️ Notification verification failed:', e.message);
+        console.error('⚠️ Notification verification failed:', e.message, e.stack);
       }
+    } else {
+      console.warn('⚠️ Notification was NOT created (notificationCreated = false)');
+      console.warn('⚠️ This means the doctor will NOT see the request in notifications!');
     }
 
     // Emit real-time notification to doctor via Socket.IO
@@ -646,10 +1118,117 @@ router.post('/request', verifyToken, requireUser, async (req, res) => {
 router.get('/alerts', verifyToken, requireDoctor, async (req, res) => {
   try {
     const doctorId = req.user.userId;
-    const match = { status: 'pending', ...doctorMatch(doctorId) };
+    const doctorIdStr = String(doctorId);
+    const doctorIdObj = oid(doctorId);
+    
+    console.log('📋 Doctor alerts requested:', {
+      doctorId: doctorIdStr,
+      doctorIdObj: String(doctorIdObj),
+      role: req.user.role,
+    });
+    
+    // Build match query - try multiple ID formats
+    const match = { 
+      status: 'pending', 
+      ...doctorMatch(doctorId) 
+    };
+    
+    // Also try direct queries to debug
+    console.log('📋 Connection match query:', {
+      doctorId: doctorIdStr,
+      doctorIdObj: String(doctorIdObj),
+      matchQuery: JSON.stringify(match, null, 2),
+    });
 
-    const pending = await Connection.find(match).sort({ createdAt: -1 }).lean();
+    // DEBUG: Check ALL pending connections to see what doctorIds exist
+    const allPending = await Connection.find({ status: 'pending' }).sort({ createdAt: -1 }).limit(20).lean();
+    console.log('🔍 DEBUG - All pending connections in DB:', {
+      total: allPending.length,
+      connections: allPending.map(c => ({
+        id: String(c._id),
+        doctorId: c.doctorId ? String(c.doctorId) : 'missing',
+        doctor: c.doctor ? String(c.doctor) : 'missing',
+        userId: c.userId ? String(c.userId) : 'missing',
+        user: c.user ? String(c.user) : 'missing',
+        status: c.status,
+        matchesDoctor: (
+          (c.doctorId && (String(c.doctorId) === doctorIdStr || String(c.doctorId) === String(doctorIdObj))) ||
+          (c.doctor && (String(c.doctor) === doctorIdStr || String(c.doctor) === String(doctorIdObj)))
+        ),
+      })),
+    });
+
+    // Try the match query first
+    let pending = await Connection.find(match).sort({ createdAt: -1 }).lean();
+    
+    // If no results, try alternative queries as fallback
+    if (pending.length === 0) {
+      console.log('⚠️ No results with match query, trying alternative queries...');
+      const alt1 = await Connection.find({ status: 'pending', doctorId: doctorIdObj }).sort({ createdAt: -1 }).lean();
+      const alt2 = await Connection.find({ status: 'pending', doctor: doctorIdObj }).sort({ createdAt: -1 }).lean();
+      const alt3 = await Connection.find({ status: 'pending', doctorId: doctorIdStr }).sort({ createdAt: -1 }).lean();
+      const alt4 = await Connection.find({ status: 'pending', doctor: doctorIdStr }).sort({ createdAt: -1 }).lean();
+      
+      // Use the first non-empty result
+      pending = alt1.length > 0 ? alt1 : 
+                alt2.length > 0 ? alt2 : 
+                alt3.length > 0 ? alt3 : 
+                alt4.length > 0 ? alt4 : [];
+      
+      if (pending.length > 0) {
+        console.log('✅ Found connections with alternative query:', {
+          usedQuery: alt1.length > 0 ? 'doctorId: ObjectId' :
+                     alt2.length > 0 ? 'doctor: ObjectId' :
+                     alt3.length > 0 ? 'doctorId: String' :
+                     'doctor: String',
+          count: pending.length,
+        });
+      }
+    }
+    
+    console.log('📋 Found pending connections:', {
+      count: pending.length,
+      connectionIds: pending.map(p => String(p._id)),
+      connections: pending.map(p => ({
+        id: String(p._id),
+        doctorId: p.doctorId ? String(p.doctorId) : 'missing',
+        doctor: p.doctor ? String(p.doctor) : 'missing',
+        userId: p.userId ? String(p.userId) : 'missing',
+        user: p.user ? String(p.user) : 'missing',
+      })),
+    });
+    
     if (!pending.length) {
+      console.log('📋 No pending connections found for doctor:', doctorIdStr);
+      console.log('🔍 DEBUG - Checking if doctor exists and is approved...');
+      const doctorCheck = await User.findOne({ _id: doctorIdObj, role: 'doctor' }).select('_id role isApproved').lean();
+      console.log('🔍 Doctor check result:', {
+        found: !!doctorCheck,
+        doctorId: doctorIdStr,
+        role: doctorCheck?.role,
+        isApproved: doctorCheck?.isApproved,
+      });
+      
+      // CRITICAL DEBUG: Try to find connections with a simpler query
+      console.log('🔍 DEBUG - Trying simpler connection queries...');
+      const test1 = await Connection.find({ status: 'pending', doctorId: doctorIdObj }).lean();
+      const test2 = await Connection.find({ status: 'pending', doctor: doctorIdObj }).lean();
+      const test3 = await Connection.find({ status: 'pending', doctorId: doctorIdStr }).lean();
+      const test4 = await Connection.find({ status: 'pending', doctor: doctorIdStr }).lean();
+      
+      console.log('🔍 DEBUG - Simple query results:', {
+        'doctorId: ObjectId': test1.length,
+        'doctor: ObjectId': test2.length,
+        'doctorId: String': test3.length,
+        'doctor: String': test4.length,
+        allResults: [
+          ...test1.map(c => ({ id: String(c._id), field: 'doctorId', value: String(c.doctorId), type: typeof c.doctorId })),
+          ...test2.map(c => ({ id: String(c._id), field: 'doctor', value: String(c.doctor), type: typeof c.doctor })),
+          ...test3.map(c => ({ id: String(c._id), field: 'doctorId', value: String(c.doctorId), type: typeof c.doctorId })),
+          ...test4.map(c => ({ id: String(c._id), field: 'doctor', value: String(c.doctor), type: typeof c.doctor })),
+        ],
+      });
+      
       return res.json({ items: [] });
     }
 
@@ -689,25 +1268,79 @@ router.get('/alerts', verifyToken, requireDoctor, async (req, res) => {
     }
 
     // Fetch session details (id + intake) per pair
+    // CRITICAL: Fix the query to properly match sessions with userId/doctorId pairs
     const sessionDetails = new Map();
     try {
-      const pairs = pending.map(p => ({
-        userId: p.userId || p.user,
-        doctorId: p.doctorId || p.doctor,
-      }));
-      const sessions = await Session.find({ $or: pairs })
-        .select('_id userId doctorId intake status')
-        .lean();
+      // Build proper $or query with multiple conditions
+      const sessionQueries = [];
+      for (const p of pending) {
+        const uid = p.userId || p.user;
+        const did = p.doctorId || p.doctor;
+        if (uid && did) {
+          // Try multiple ID formats to match
+          const uidObj = oid(String(uid));
+          const didObj = oid(String(did));
+          const uidStr = String(uid);
+          const didStr = String(did);
+          
+          sessionQueries.push(
+            { userId: uidObj, doctorId: didObj },
+            { userId: uidObj, doctorId: didStr },
+            { userId: uidStr, doctorId: didObj },
+            { userId: uidStr, doctorId: didStr },
+          );
+        }
+      }
+      
+      console.log('🔍 Fetching sessions for alerts:', {
+        pendingCount: pending.length,
+        queryCount: sessionQueries.length,
+        sampleQueries: sessionQueries.slice(0, 2),
+      });
+      
+      const sessions = sessionQueries.length > 0
+        ? await Session.find({ 
+            $or: sessionQueries,
+            status: 'pending', // Only get pending sessions
+          })
+          .select('_id userId doctorId intake status')
+          .lean()
+        : [];
+      
+      console.log('🔍 Found sessions:', {
+        count: sessions.length,
+        sessions: sessions.map(s => ({
+          id: String(s._id),
+          userId: String(s.userId),
+          doctorId: String(s.doctorId),
+          hasIntake: !!s.intake,
+          intakeFields: s.intake ? Object.keys(s.intake) : [],
+        })),
+      });
+      
       sessions.forEach(s => {
-        const key = `${String(s.userId)}_${String(s.doctorId)}`;
-        sessionDetails.set(key, {
+        // Create keys with both ObjectId and string formats
+        const uid = String(s.userId);
+        const did = String(s.doctorId);
+        const key1 = `${uid}_${did}`;
+        const key2 = `${String(oid(uid))}_${String(oid(did))}`;
+        
+        const sessionData = {
           id: String(s._id),
           intake: s.intake || null,
           status: s.status,
-        });
+        };
+        
+        sessionDetails.set(key1, sessionData);
+        sessionDetails.set(key2, sessionData);
+      });
+      
+      console.log('🔍 Session details map:', {
+        mapSize: sessionDetails.size,
+        keys: Array.from(sessionDetails.keys()).slice(0, 5),
       });
     } catch (e) {
-      console.error('alerts: fetch sessionDetails failed:', e.message);
+      console.error('❌ alerts: fetch sessionDetails failed:', e.message, e.stack);
     }
 
     const items = pending.map(p => {
@@ -715,7 +1348,22 @@ router.get('/alerts', verifyToken, requireDoctor, async (req, res) => {
       const did = String(p.doctorId || p.doctor || '');
       const u = users.find(x => String(x._id) === uid);
       const ph = latestByUser.get(uid);
-      const s = sessionDetails.get(`${uid}_${did}`) || null;
+      
+      // Try multiple key formats to find session
+      const key1 = `${uid}_${did}`;
+      const key2 = `${String(oid(uid))}_${String(oid(did))}`;
+      const s = sessionDetails.get(key1) || sessionDetails.get(key2) || null;
+      
+      console.log('🔍 Mapping alert item:', {
+        connectionId: String(p._id),
+        userId: uid,
+        doctorId: did,
+        sessionFound: !!s,
+        sessionId: s?.id || 'N/A',
+        hasIntake: !!s?.intake,
+        intakeFields: s?.intake ? Object.keys(s.intake) : [],
+      });
+      
       return {
         id: String(p._id),
         sessionId: s?.id || null,
@@ -737,6 +1385,12 @@ router.get('/alerts', verifyToken, requireDoctor, async (req, res) => {
             }
           : null,
       };
+    });
+
+    console.log('📋 Returning alerts:', {
+      doctorId: doctorIdStr,
+      itemCount: items.length,
+      itemsWithIntake: items.filter(i => i.intake).length,
     });
 
     res.json({ items });
@@ -868,42 +1522,68 @@ router.post('/alerts/respond', verifyToken, requireDoctor, async (req, res) => {
 /* ---------------------------------------------
    DOCTOR DASHBOARD: Patients list
    GET /api/doctors/patients → { patients: [...] }
+   Returns connected patients with their details, intake info, and therapy sessions
 ---------------------------------------------- */
 router.get('/patients', verifyToken, requireDoctor, async (req, res) => {
   try {
-    const match = { ...doctorMatch(req.user.userId) };
+    const doctorId = req.user.userId;
+    const doctorIdStr = String(doctorId);
+    const doctorIdObj = oid(doctorId);
+    
+    // Get all connections (accepted, pending, etc.)
+    const match = { ...doctorMatch(doctorId) };
     const conns = await Connection.find(match).sort({ createdAt: -1 }).lean();
 
     const userIds = conns.map(c => c.userId || c.user).filter(Boolean).map(String);
     const users = userIds.length
-      ? await User.find({ _id: { $in: userIds } }).select('_id name email profilePhoto gender age').lean()
+      ? await User.find({ _id: { $in: userIds } })
+          .select('_id name email profilePhoto gender age phone address')
+          .lean()
       : [];
 
-    const patients = conns.map(c => {
-      const uid = String(c.userId || c.user || '');
-      const u = users.find(x => String(x._id) === uid);
-      return {
-        _id: String(c._id),
-        status: c.status === 'accepted' ? 'approved' : c.status,
-        user: u
-          ? {
-              _id: String(u._id),
-              name: u.name,
-              email: u.email,
-              avatarUrl: u.profilePhoto || null,
-              gender: u.gender || null,
-              age: u.age || null,
-            }
-          : null,
-        lastPhotoAt: null,
-        latestPhotoThumb: null,
-      };
+    // Also fetch Profile data for avatars
+    const Profile = require('../models/Profile');
+    const profiles = userIds.length
+      ? await Profile.find({ userId: { $in: userIds.map(oid) } }).lean()
+      : [];
+    const profilesByUserId = new Map();
+    profiles.forEach(p => {
+      profilesByUserId.set(String(p.userId), p);
     });
 
-    if (patients.length) {
-      const ids = userIds.map(oid);
-      const latestByUser = new Map();
+    // Get latest sessions with intake data for each patient
+    const sessionsByUser = new Map();
+    if (userIds.length) {
+      const userIdsObj = userIds.map(oid);
+      const sessions = await Session.find({
+        doctorId: doctorIdObj,
+        userId: { $in: userIdsObj },
+      })
+        .sort({ createdAt: -1 })
+        .lean();
+      
+      // Group sessions by userId, keeping the latest one with intake
+      sessions.forEach(s => {
+        const uid = String(s.userId);
+        if (!sessionsByUser.has(uid)) {
+          sessionsByUser.set(uid, []);
+        }
+        sessionsByUser.get(uid).push({
+          id: String(s._id),
+          status: s.status,
+          intake: s.intake || null,
+          instructions: s.instructions || null,
+          marmaPlan: s.marmaPlan || [],
+          createdAt: s.createdAt,
+          updatedAt: s.updatedAt,
+        });
+      });
+    }
 
+    // Get latest photos
+    const latestByUser = new Map();
+    if (userIds.length) {
+      const ids = userIds.map(oid);
       try {
         const A = await Photo.aggregate([
           { $match: { userId: { $in: ids } } },
@@ -944,16 +1624,55 @@ router.get('/patients', verifyToken, requireDoctor, async (req, res) => {
       } catch (e) {
         // Ignore aggregation errors
       }
-
-      patients.forEach(p => {
-        const key = String(p.user?._id || '');
-        const r = latestByUser.get(key);
-        if (r) {
-          p.lastPhotoAt = r.lastPhotoAt || null;
-          p.latestPhotoThumb = r.latestAnnotated || r.latestFile || null;
-        }
-      });
     }
+
+    const patients = conns.map(c => {
+      const uid = String(c.userId || c.user || '');
+      const u = users.find(x => String(x._id) === uid);
+      const profile = profilesByUserId.get(uid);
+      const sessions = sessionsByUser.get(uid) || [];
+      const latestSession = sessions[0] || null; // Most recent session
+      
+      const photoData = latestByUser.get(uid);
+      
+      // Use Profile.avatar if available, otherwise User.profilePhoto
+      const avatarUrl = profile?.avatar || u?.profilePhoto || null;
+      
+      return {
+        _id: String(c._id),
+        connectionId: String(c._id),
+        status: c.status === 'accepted' ? 'approved' : c.status,
+        requestedAt: c.requestedAt || c.createdAt,
+        user: u
+          ? {
+              _id: String(u._id),
+              id: String(u._id),
+              name: u.name,
+              email: u.email,
+              avatarUrl: avatarUrl,
+              profilePhoto: avatarUrl, // Also include for compatibility
+              gender: u.gender || profile?.gender || null,
+              age: u.age || null,
+              phone: u.phone || profile?.phone || null,
+              address: u.address || null,
+            }
+          : null,
+        lastPhotoAt: photoData?.lastPhotoAt || null,
+        latestPhotoThumb: photoData?.latestAnnotated || photoData?.latestFile || null,
+        // Latest intake/pain information from most recent session
+        latestIntake: latestSession?.intake || null,
+        // All therapy sessions for this patient
+        therapySessions: sessions.map(s => ({
+          id: s.id,
+          status: s.status,
+          hasInstructions: !!(s.instructions?.text || s.marmaPlan?.length),
+          createdAt: s.createdAt,
+          updatedAt: s.updatedAt,
+        })),
+        // Latest session ID for quick access
+        latestSessionId: latestSession?.id || null,
+      };
+    });
 
     res.json({ patients });
   } catch (e) {
@@ -1025,22 +1744,38 @@ router.get('/my/accepted', verifyToken, requireUser, async (req, res) => {
       .select('_id name email profilePhoto gender age specialization qualifications bio documentPath')
       .lean();
 
+    // Also fetch Profile data for fullName and avatar
+    const Profile = require('../models/Profile');
+    const profiles = await Profile.find({ userId: { $in: docIds.map(oid) } }).lean();
+    const profilesByUserId = new Map();
+    profiles.forEach(p => {
+      profilesByUserId.set(String(p.userId), p);
+    });
+
     const byId = new Map(docs.map(d => [String(d._id), d]));
     const items = docIds
-      .map(id => byId.get(String(id)))
-      .filter(Boolean)
-      .map(d => ({
-        id: String(d._id),
-        name: d.name,
-        email: d.email,
-        avatar: d.profilePhoto || null,
-        gender: d.gender ?? null,
-        age: d.age ?? null,
-        specialization: d.specialization ?? null,
-        qualifications: d.qualifications ?? null,
-        bio: d.bio ?? null,
-        documentPath: d.documentPath || null,
-      }));
+      .map(id => {
+        const d = byId.get(String(id));
+        if (!d) return null;
+        const profile = profilesByUserId.get(String(id));
+        const avatarUrl = profile?.avatar || d.profilePhoto || null;
+        return {
+          id: String(d._id),
+          name: d.name,
+          fullName: profile?.fullName || null, // Include fullName from Profile
+          title: profile?.title || null, // Include title from Profile
+          email: d.email,
+          avatar: avatarUrl,
+          profilePhoto: avatarUrl, // Also include for compatibility
+          gender: d.gender || profile?.gender || null,
+          age: d.age ?? null,
+          specialization: d.specialization ?? null,
+          qualifications: d.qualifications ?? null,
+          bio: d.bio ?? null,
+          documentPath: d.documentPath || null,
+        };
+      })
+      .filter(Boolean);
 
     res.json({ items });
   } catch (e) {
@@ -1216,29 +1951,6 @@ router.post('/invites/respond', verifyToken, requireUser, async (req, res) => {
   }
 });
 
-/* ---------------------------------------------
-   DEV: list my connections (as either role)
-   GET /api/doctors/debug/my-connections
----------------------------------------------- */
-router.get('/debug/my-connections', verifyToken, async (req, res) => {
-  try {
-    const me = String(req.user.userId);
-    const rows = await Connection.find({
-      $or: [
-        { userId: me },
-        { user: me },
-        { doctorId: me },
-        { doctor: me },
-      ],
-    })
-      .sort({ createdAt: -1 })
-      .lean();
-
-    res.json({ rows });
-  } catch (e) {
-    console.error('GET /doctors/debug/my-connections error', e);
-    res.status(500).json({ message: 'server_error' });
-  }
-});
+// Debug endpoints removed for production
 
 module.exports = router;

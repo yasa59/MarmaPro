@@ -11,9 +11,12 @@ const jwt = require('jsonwebtoken');
 const { Server } = require('socket.io');
 
 // ----- Allowed origins (used by CORS and Socket.IO) -----
+// Add production frontend URL via FRONTEND_URL environment variable
+// Example: FRONTEND_URL=https://your-app.vercel.app
 const allowedOrigins = new Set([
   'http://localhost:5173',
   'http://127.0.0.1:5173',
+  ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []),
 ]);
 
 // ----- App -----

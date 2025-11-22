@@ -4,6 +4,7 @@ import { io } from "socket.io-client";
 import api from "../api/axios";
 import { useParams, useSearchParams } from "react-router-dom";
 import { fetchIceServers, getSignalingURL, getSignalingPath } from "../lib/rtcConfig";
+import toast from "../components/Toast";
 
 export default function CallRoom() {
   // You can supply roomId via route /call/:roomId or fetch it using ?partnerId=
@@ -55,7 +56,7 @@ export default function CallRoom() {
       if (!roomIdFromPath) {
         const partnerId = search.get("partnerId");
         if (!partnerId) {
-          alert("Missing partnerId");
+          toast.error("Missing partnerId");
           return;
         }
         const { data } = await api.post("/call/room", { partnerId });
@@ -118,7 +119,9 @@ export default function CallRoom() {
         try {
           await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
         } catch (e) {
-          console.warn("Error adding ICE candidate", e);
+          if (import.meta.env.DEV) {
+            console.warn("Error adding ICE candidate", e);
+          }
         }
       }
     });
@@ -281,7 +284,9 @@ export default function CallRoom() {
       };
       socketRef.current.emit("presence", { roomId, state: { sharing: true } });
     } catch (e) {
-      console.warn("Share failed", e);
+      if (import.meta.env.DEV) {
+        console.warn("Share failed", e);
+      }
     }
   };
 

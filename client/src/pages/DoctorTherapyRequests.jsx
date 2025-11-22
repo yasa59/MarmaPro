@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import api from "../api/axios";
+import toast from "../components/Toast";
 
 export default function DoctorTherapyRequests() {
   const [rows, setRows] = useState([]);
@@ -13,7 +14,7 @@ export default function DoctorTherapyRequests() {
       const { data } = await api.get("/sessions/inbox");
       setRows(Array.isArray(data?.items) ? data.items : []);
     } catch (e) {
-      alert(e?.response?.data?.message || e.message);
+      toast.error(e?.response?.data?.message || e.message);
     } finally {
       setLoading(false);
     }
@@ -24,7 +25,7 @@ export default function DoctorTherapyRequests() {
       await api.patch(`/sessions/${id}/accept`);
       setRows(prev => prev.map(r => r.id === id ? { ...r, status: "accepted" } : r));
     } catch (e) {
-      alert(e?.response?.data?.message || e.message);
+      toast.error(e?.response?.data?.message || e.message);
     }
   }
 

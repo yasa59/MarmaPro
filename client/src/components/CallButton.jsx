@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import api from "../api/axios";
+import toast from "./Toast";
 
 export default function CallButton({
   partnerId,
@@ -37,7 +38,7 @@ export default function CallButton({
   async function start() {
     if (loading) return;
     if (!partnerId) {
-      alert("Missing partner id.");
+      toast.error("Missing partner id.");
       return;
     }
     setLoading(true);
@@ -56,19 +57,21 @@ export default function CallButton({
       const msg = e?.response?.data?.message || e.message || "unknown_error";
       // Show precise reasons coming from server
       if (msg === "not_connected") {
-        alert("Cannot call: you're not connected to this partner.");
+        toast.error("Cannot call: you're not connected to this partner.");
       } else if (msg === "not_approved") {
-        alert("Cannot call: connection exists but is not approved yet.");
+        toast.error("Cannot call: connection exists but is not approved yet.");
       } else if (msg === "partner_required") {
-        alert("Cannot call: partner missing.");
+        toast.error("Cannot call: partner missing.");
       } else if (msg === "partner_not_found") {
-        alert("Cannot call: partner not found.");
+        toast.error("Cannot call: partner not found.");
       } else if (msg === "cannot_call_self") {
-        alert("Cannot call yourself.");
+        toast.error("Cannot call yourself.");
       } else {
-        alert(`Unable to start call: ${msg}`);
+        toast.error(`Unable to start call: ${msg}`);
       }
-      console.error("CallButton error:", e?.response?.data || e);
+      if (import.meta.env.DEV) {
+        console.error("CallButton error:", e?.response?.data || e);
+      }
     } finally {
       setLoading(false);
     }

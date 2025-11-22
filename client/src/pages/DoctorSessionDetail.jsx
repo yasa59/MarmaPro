@@ -4,6 +4,7 @@ import { useParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import api from "../api/axios";
 import { getSocket } from "../lib/socket";
+import toast from "../components/Toast";
 
 export default function DoctorSessionDetail() {
   const { id } = useParams();
@@ -50,7 +51,7 @@ export default function DoctorSessionDetail() {
       }
     } catch (e) {
       setRow(null);
-      alert(e?.response?.data?.message || e.message);
+      toast.error(e?.response?.data?.message || e.message);
     } finally {
       setLoading(false);
     }
@@ -81,9 +82,9 @@ export default function DoctorSessionDetail() {
         }));
 
         if (data.connected) {
-          alert("🎉 Both parties are ready! You can now start the session.");
+          toast.success("🎉 Both parties are ready! You can now start the session.");
         } else if (data.userReady) {
-          alert("✅ Patient is ready to connect!");
+          toast.info("✅ Patient is ready to connect!");
         }
       }
     };
@@ -102,10 +103,10 @@ export default function DoctorSessionDetail() {
       const { data } = await api.post(`/sessions/${id}/connect`);
       await load(); // Reload to get updated connection state
       if (data.message) {
-        alert(data.message);
+        toast.info(data.message);
       }
     } catch (e) {
-      alert(e?.response?.data?.message || e.message);
+      toast.error(e?.response?.data?.message || e.message);
     } finally {
       setConnecting(false);
     }
@@ -117,7 +118,7 @@ export default function DoctorSessionDetail() {
       await api.patch(`/sessions/${id}/accept`);
       await load();
     } catch (e) {
-      alert(e?.response?.data?.message || e.message);
+      toast.error(e?.response?.data?.message || e.message);
     } finally {
       setWorking(false);
     }
@@ -134,9 +135,9 @@ export default function DoctorSessionDetail() {
         marmaPlan: plan,
       });
       await load();
-      alert("✅ Instructions sent to patient! They will be notified.");
+      toast.success("✅ Instructions sent to patient! They will be notified.");
     } catch (e) {
-      alert(e?.response?.data?.message || e.message);
+      toast.error(e?.response?.data?.message || e.message);
     } finally {
       setWorking(false);
     }
@@ -152,7 +153,7 @@ export default function DoctorSessionDetail() {
       if (!img) throw new Error("Could not generate QR.");
       setQr({ img, link });
     } catch (e) {
-      alert(e?.response?.data?.message || e.message);
+      toast.error(e?.response?.data?.message || e.message);
     } finally {
       setWorking(false);
     }

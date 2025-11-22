@@ -1,0 +1,30 @@
+# Exclude large directories from serverless function
+client/
+server/uploads/
+server/node_modules/
+client/node_modules/
+*.log
+.DS_Store
+.git/
+.gitignore
+README.md
+*.md
+
+# Exclude Python files (not needed in serverless)
+server/py/
+*.py
+*.pyc
+__pycache__/
+
+# Exclude test files
+**/__tests__/
+**/*.test.js
+**/*.spec.js
+
+# Exclude development files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+

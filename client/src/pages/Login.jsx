@@ -6,6 +6,7 @@ import axios from "axios";            // one-off absolute call to prove connecti
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
 import routeByRole from "../utils/routeByRole";
+import toast from "../components/Toast";
 
 export default function Login() {
   const [stage, setStage]   = useState("form");   // "form" -> "otp"
@@ -31,7 +32,9 @@ export default function Login() {
           .replace(/\/api$/i, "");
 
       const url = `${base}/api/auth/login`;
-      console.log("Login → POST", url);
+      if (import.meta.env.DEV) {
+        console.log("Login → POST", url);
+      }
 
       // One-off absolute call (bypasses axios instance baseURL)
       await axios.post(url, { email, password }, { withCredentials: false });
@@ -40,7 +43,9 @@ export default function Login() {
     } catch (e) {
       const status = e?.response?.status;
       const reqUrl = e?.request?.responseURL || "(no responseURL)";
-      console.error("Login error:", { status, url: reqUrl, data: e?.response?.data, e });
+      if (import.meta.env.DEV) {
+        console.error("Login error:", { status, url: reqUrl, data: e?.response?.data });
+      }
       if (status === 404) {
         setErr(`Login endpoint not found (404).\nRequest URL: ${reqUrl}\nCheck VITE_API_BASE and that the server mounts /api/auth.`);
       } else {
@@ -60,7 +65,9 @@ export default function Login() {
     } catch (e) {
       const status = e?.response?.status;
       const reqUrl = e?.request?.responseURL || "(no responseURL)";
-      console.error("Verify OTP error:", { status, url: reqUrl, data: e?.response?.data });
+      if (import.meta.env.DEV) {
+        console.error("Verify OTP error:", { status, url: reqUrl, data: e?.response?.data });
+      }
       setErr(e?.response?.data?.message || e.message);
     } finally {
       setBusy(false);
@@ -71,23 +78,27 @@ export default function Login() {
     setBusy(true); setErr("");
     try {
       await api.post("/auth/resend-otp", { email });
-      alert("OTP resent to your email.");
+      toast.success("OTP resent to your email.");
     } catch (e) {
       const status = e?.response?.status;
       const reqUrl = e?.request?.responseURL || "(no responseURL)";
-      console.error("Resend OTP error:", { status, url: reqUrl, data: e?.response?.data });
+      if (import.meta.env.DEV) {
+        console.error("Resend OTP error:", { status, url: reqUrl, data: e?.response?.data });
+      }
       setErr(e?.response?.data?.message || e.message);
     } finally {
       setBusy(false);
     }
   }
 
+  // Debug function - only in development
   async function debugPing() {
+    if (!import.meta.env.DEV) return;
     try {
       const { data } = await api.get("/auth/health");
-      alert(`Health OK: ${JSON.stringify(data)}`);
+      toast.info(`Health OK: ${JSON.stringify(data)}`);
     } catch (e) {
-      alert(`Health FAIL: ${e?.response?.status} ${e?.request?.responseURL || ""}`);
+      toast.error(`Health FAIL: ${e?.response?.status} ${e?.request?.responseURL || ""}`);
     }
   }
 

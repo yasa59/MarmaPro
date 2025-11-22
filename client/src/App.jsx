@@ -21,7 +21,6 @@ import TherapyControls from "./pages/TherapyControls";
 import TherapySelf from "./pages/TherapySelf";
 
 import ChooseDoctor from "./pages/ChooseDoctor";
-import RequestTherapyForm from "./pages/RequestTherapyForm";
 import PatientIntakeForm from "./pages/PatientIntakeForm";
 import DoctorAlerts from "./pages/DoctorAlerts";
 import DoctorPatients from "./pages/DoctorPatients";
@@ -44,8 +43,11 @@ import DoctorSessionDetail from "./pages/DoctorSessionDetail";
 
 // Public doctor profile (signed-in)
 import DoctorPublicProfile from "./pages/DoctorPublicProfile";
+// Connected doctor profile (for patients)
+import DoctorProfile from "./pages/DoctorProfile";
 
-import NotificationsPage from "./pages/Notifications"; // add import at the top
+import NotificationsPage from "./pages/Notifications";
+import { ToastContainer } from "./components/Toast";
 
 export default function AppShell() {
   const nav = useNavigate();
@@ -87,6 +89,7 @@ export default function AppShell() {
 
       <div className="relative z-10">
         <Navbar />
+        <ToastContainer />
         <div className="max-w-7xl mx-auto px-4 lg:px-6 py-6">
           <Routes>
             {/* public */}
@@ -123,15 +126,16 @@ export default function AppShell() {
               path="/doctor/:id/profile"
               element={<ProtectedRoute><DoctorPublicProfile /></ProtectedRoute>}
             />
+            {/* connected doctor profile (for patients) */}
+            <Route
+              path="/user/doctor/:id/profile"
+              element={<ProtectedRoute role="user"><DoctorProfile /></ProtectedRoute>}
+            />
 
             {/* user flows */}
             <Route
               path="/user/doctors"
               element={<ProtectedRoute role="user"><ChooseDoctor /></ProtectedRoute>}
-            />
-            <Route
-              path="/request-therapy/:doctorId"
-              element={<ProtectedRoute role="user"><RequestTherapyForm /></ProtectedRoute>}
             />
             <Route
               path="/patient-intake/:doctorId"
@@ -197,14 +201,14 @@ export default function AppShell() {
             />
 
             {/* notifications */}
-            <Route
-              path="/notifications"
-              element={
-                <ProtectedRoute>
-                  <NotificationsPage />
-                </ProtectedRoute>
-              }
-            />
+<Route
+  path="/notifications"
+  element={
+    <ProtectedRoute>
+      <NotificationsPage />
+    </ProtectedRoute>
+  }
+/>
 
             {/* catch-all */}
             <Route path="*" element={<Navigate to="/" replace />} />

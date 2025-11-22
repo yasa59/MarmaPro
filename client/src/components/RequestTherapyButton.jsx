@@ -22,7 +22,7 @@ export default function RequestTherapyButton({
   function handleClick() {
     if (!doctorId) return;
     navigate(`/patient-intake/${doctorId}`);
-    onSuccess?.();
+      onSuccess?.();
   }
 
   const base =
@@ -43,7 +43,7 @@ export default function RequestTherapyButton({
     >
       <span className="relative inline-flex">
         <span className="w-2 h-2 rounded-full bg-white/90" />
-        <span className="absolute inline-flex w-full h-full rounded-full bg-white/60 animate-ping opacity-70" />
+          <span className="absolute inline-flex w-full h-full rounded-full bg-white/60 animate-ping opacity-70" />
       </span>
       {label}
     </button>

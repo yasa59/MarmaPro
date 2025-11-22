@@ -4,6 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import api from "../api/axios";
 import { getSocket } from "../lib/socket";
+import toast from "../components/Toast";
 
 export default function NotificationsPage() {
   const navigate = useNavigate();
@@ -18,14 +19,36 @@ export default function NotificationsPage() {
     try {
       // Get all notifications
       const { data } = await api.get("/notifications?limit=50");
-      console.log("📬 Notifications loaded:", {
-        role,
-        count: data?.items?.length || 0,
-        items: data?.items || [],
-      });
-      setNotifications(Array.isArray(data?.items) ? data.items : []);
+      const notifications = Array.isArray(data?.items) ? data.items : [];
+      setNotifications(notifications);
+      
+      if (import.meta.env.DEV) {
+        console.log("📬 Notifications loaded:", {
+          role,
+          count: notifications.length,
+          items: notifications,
+          fullResponse: data,
+        });
+        
+        // Log notification types for debugging
+        if (notifications.length > 0) {
+          console.log("📋 Notification types found:", {
+            connect_request: notifications.filter(n => n.type === 'connect_request').length,
+            instructions_sent: notifications.filter(n => n.type === 'instructions_sent').length,
+            allTypes: [...new Set(notifications.map(n => n.type))],
+          });
+        } else {
+          console.warn("⚠️ No notifications found for current user");
+        }
+      }
     } catch (e) {
-      console.error("❌ Failed to load notifications:", e?.response || e);
+      if (import.meta.env.DEV) {
+        console.error("❌ Failed to load notifications:", {
+          error: e?.response || e,
+          status: e?.response?.status,
+          message: e?.response?.data?.message || e.message,
+        });
+      }
       setErr(e?.response?.data?.message || e.message);
       setNotifications([]);
     } finally {
@@ -76,7 +99,9 @@ export default function NotificationsPage() {
         n._id === notificationId ? { ...n, read: true } : n
       ));
     } catch (e) {
-      console.error("Failed to mark as read:", e);
+      if (import.meta.env.DEV) {
+        console.error("Failed to mark as read:", e);
+      }
     }
   }
 
@@ -85,7 +110,7 @@ export default function NotificationsPage() {
       await api.post("/notifications/mark-read", {});
       setNotifications(prev => prev.map(n => ({ ...n, read: true })));
     } catch (e) {
-      alert(e?.response?.data?.message || e.message);
+      toast.error(e?.response?.data?.message || e.message);
     }
   }
 

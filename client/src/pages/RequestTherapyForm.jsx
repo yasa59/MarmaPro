@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import api from "../api/axios";
+import toast from "../components/Toast";
 
 export default function RequestTherapyForm() {
   const { doctorId } = useParams();
@@ -26,7 +27,7 @@ export default function RequestTherapyForm() {
   useEffect(() => {
     async function loadDoctor() {
       if (!doctorId) {
-        alert("Doctor ID is required");
+        toast.error("Doctor ID is required");
         navigate("/user/doctors");
         return;
       }
@@ -35,7 +36,7 @@ export default function RequestTherapyForm() {
         const { data } = await api.get(`/doctors/${doctorId}/profile`);
         setDoctor(data);
       } catch (e) {
-        alert(e?.response?.data?.message || e.message || "Failed to load doctor");
+        toast.error(e?.response?.data?.message || e.message || "Failed to load doctor");
         navigate("/user/doctors");
       } finally {
         setLoading(false);
@@ -50,15 +51,15 @@ export default function RequestTherapyForm() {
 
     // Basic validation
     if (!intake.fullName.trim()) {
-      alert("Please enter your full name");
+      toast.error("Please enter your full name");
       return;
     }
     if (!intake.age || Number(intake.age) <= 0) {
-      alert("Please enter a valid age");
+      toast.error("Please enter a valid age");
       return;
     }
     if (!intake.phone.trim()) {
-      alert("Please enter your phone number");
+      toast.error("Please enter your phone number");
       return;
     }
 
@@ -78,12 +79,14 @@ export default function RequestTherapyForm() {
         },
       });
 
-      alert("✅ Request sent successfully! The doctor will review your information.");
+      toast.success("Request sent successfully! The doctor will review your information.");
       navigate("/user/sessions");
     } catch (e) {
       const msg = e?.response?.data?.message || e.message || "Failed to send request";
-      alert(msg);
-      console.error("RequestTherapyForm error:", e?.response || e);
+      toast.error(msg);
+      if (import.meta.env.DEV) {
+        console.error("RequestTherapyForm error:", e?.response || e);
+      }
     } finally {
       setSubmitting(false);
     }

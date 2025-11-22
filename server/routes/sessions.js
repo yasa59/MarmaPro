@@ -145,6 +145,62 @@ router.get('/inbox', verifyToken, requireDoctor, async (req, res) => {
 });
 
 /* ---------------------------------------------
+   GET /api/sessions?userId=xxx (doctor) - Get sessions for a specific patient
+---------------------------------------------- */
+router.get('/', verifyToken, async (req, res) => {
+  try {
+    const { userId } = req.query;
+    const currentUserId = req.user.userId;
+    const role = req.user.role;
+
+    if (role === 'doctor' && userId) {
+      // Doctor viewing patient's sessions
+      const doctorId = currentUserId;
+      const patientId = userId;
+      
+      // Verify connection
+      const conn = await Connection.findOne({
+        $or: [
+          { doctorId: oid(doctorId), userId: oid(patientId) },
+          { doctor: oid(doctorId), user: oid(patientId) },
+        ],
+        status: { $in: ['accepted', 'approved'] }
+      }).lean();
+      
+      if (!conn) {
+        return res.status(403).json({ message: 'Not connected to this patient' });
+      }
+
+      const sessions = await Session.find({
+        doctorId: oid(doctorId),
+        userId: oid(patientId),
+      })
+        .sort({ createdAt: -1 })
+        .lean();
+
+      const items = sessions.map(s => ({
+        id: String(s._id),
+        _id: String(s._id),
+        status: s.status,
+        intake: s.intake || null,
+        instructions: s.instructions || null,
+        marmaPlan: s.marmaPlan || [],
+        createdAt: s.createdAt,
+        updatedAt: s.updatedAt,
+      }));
+
+      return res.json({ items, sessions: items });
+    }
+
+    // Fallback to other endpoints
+    return res.status(400).json({ message: 'Invalid request' });
+  } catch (e) {
+    console.error('GET /sessions error', e);
+    res.status(500).json({ message: 'server_error' });
+  }
+});
+
+/* ---------------------------------------------
    GET /api/sessions/mine (user)
 ---------------------------------------------- */
 router.get('/mine', verifyToken, requireUser, async (req, res) => {

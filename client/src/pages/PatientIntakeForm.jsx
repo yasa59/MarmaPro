@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import api from "../api/axios";
+import toast from "../components/Toast";
 
 export default function PatientIntakeForm() {
   const { doctorId } = useParams();
@@ -32,7 +33,7 @@ export default function PatientIntakeForm() {
   useEffect(() => {
     async function loadDoctor() {
       if (!doctorId) {
-        alert("Doctor ID is required");
+        toast.error("Doctor ID is required");
         navigate("/user/doctors");
         return;
       }
@@ -40,7 +41,11 @@ export default function PatientIntakeForm() {
       try {
         const [doctorData, draftData] = await Promise.all([
           api.get(`/doctors/${doctorId}/profile`),
-          api.get(`/user/intake-drafts/${doctorId}`).catch(() => null), // Draft is optional
+          api.get(`/user/intake-drafts/${doctorId}`).catch((e) => {
+            // Silently handle 404 - draft is optional
+            if (e?.response?.status === 404) return { data: null };
+            throw e;
+          }),
         ]);
         setDoctor(doctorData.data);
         
@@ -54,7 +59,7 @@ export default function PatientIntakeForm() {
         }
       } catch (e) {
         if (e?.response?.status !== 404) {
-          alert(e?.response?.data?.message || e.message || "Failed to load doctor");
+          toast.error(e?.response?.data?.message || e.message || "Failed to load doctor");
           navigate("/user/doctors");
         }
       } finally {
@@ -74,12 +79,14 @@ export default function PatientIntakeForm() {
         doctorId,
         intake,
       });
-      alert("✅ Draft saved successfully! You can find it in your dashboard.");
+      toast.success("Draft saved successfully! You can find it in your dashboard.");
       navigate("/user");
     } catch (e) {
       const msg = e?.response?.data?.message || e.message || "Failed to save draft";
-      alert(msg);
-      console.error("Save draft error:", e?.response || e);
+      toast.error(msg);
+      if (import.meta.env.DEV) {
+        console.error("Save draft error:", e?.response || e);
+      }
     } finally {
       setSavingDraft(false);
     }
@@ -92,24 +99,32 @@ export default function PatientIntakeForm() {
 
     // Basic validation
     if (!intake.fullName.trim()) {
-      alert("Please enter your full name");
+      toast.error("Please enter your full name");
       return;
     }
     if (!intake.age || Number(intake.age) <= 0) {
-      alert("Please enter a valid age");
+      toast.error("Please enter a valid age");
       return;
     }
     if (!intake.phone.trim()) {
-      alert("Please enter your phone number");
+      toast.error("Please enter your phone number");
       return;
     }
     if (!intake.painDescription.trim()) {
-      alert("Please describe your pain/condition");
+      toast.error("Please describe your pain/condition");
       return;
     }
 
     setSaving(true);
     try {
+      if (import.meta.env.DEV) {
+        console.log("📤 Sending therapy request:", {
+          doctorId,
+          hasIntake: true,
+          intakeFields: Object.keys(intake).filter(k => intake[k]),
+        });
+      }
+
       // Send request with intake data
       const { data } = await api.post("/doctors/request", {
         doctorId,
@@ -129,12 +144,21 @@ export default function PatientIntakeForm() {
         },
       });
 
-      alert("✅ Request sent successfully! The doctor will review your information.");
+      if (import.meta.env.DEV) {
+        console.log("✅ Request sent successfully:", data);
+      }
+      toast.success("Request sent successfully! The doctor will review your information.");
       navigate("/user/sessions");
     } catch (e) {
       const msg = e?.response?.data?.message || e.message || "Failed to send request";
-      alert(msg);
-      console.error("RequestTherapyForm error:", e?.response || e);
+      if (import.meta.env.DEV) {
+        console.error("❌ RequestTherapyForm error:", {
+          message: msg,
+          status: e?.response?.status,
+          data: e?.response?.data,
+        });
+      }
+      toast.error(msg);
     } finally {
       setSaving(false);
     }
@@ -164,19 +188,19 @@ export default function PatientIntakeForm() {
 
   return (
     <motion.div
-      className="max-w-4xl mx-auto space-y-6"
+      className="max-w-4xl mx-auto p-3 sm:p-4 md:p-6 space-y-4 md:space-y-6"
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
     >
       {/* Header with doctor info */}
       <motion.div
-        className="glass-strong rounded-3xl p-6"
+        className="glass-strong rounded-2xl sm:rounded-3xl p-4 sm:p-6"
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ duration: 0.4 }}
       >
-        <div className="flex items-center gap-4 mb-4">
+        <div className="flex flex-col sm:flex-row items-center gap-3 sm:gap-4 mb-4">
           {doctor.profilePhoto ? (
             <img
               src={doctor.profilePhoto}
@@ -203,7 +227,7 @@ export default function PatientIntakeForm() {
 
       {/* Extended Intake Form */}
       <motion.div
-        className="glass rounded-3xl p-6"
+        className="glass rounded-2xl sm:rounded-3xl p-4 sm:p-6"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, delay: 0.1 }}
@@ -216,7 +240,7 @@ export default function PatientIntakeForm() {
           {/* Personal Information */}
           <div className="space-y-4">
             <div className="text-white/90 font-medium text-sm mb-2">Personal Information</div>
-            <div className="grid md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
               <Input
                 label="Full Name *"
                 value={intake.fullName}
@@ -278,7 +302,7 @@ export default function PatientIntakeForm() {
           {/* Pain/Health Information */}
           <div className="space-y-4 pt-4 border-t border-white/10">
             <div className="text-white/90 font-medium text-sm mb-2">Pain & Health Information</div>
-            <div className="grid md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
               <Select
                 label="Problem Type *"
                 value={intake.problemType}

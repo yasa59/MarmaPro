@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import api from '../api/axios';
 import fileUrl from '../utils/fileUrl'; // if you want to show doc links
+import toast from '../components/Toast';
 
 function buildApprovalCopy(name){
   return `Subject: Your Doctor Account is Approved – iMarma Therapy
@@ -30,7 +31,9 @@ export default function AdminDashboard(){
       const { data } = await api.get('/auth/doctors/pending');
       setPending(Array.isArray(data) ? data : []);
     }catch(e){
-      console.error('Failed to load pending doctors:', e);
+      if (import.meta.env.DEV) {
+        console.error('Failed to load pending doctors:', e);
+      }
       setPending([]);
     }
   }
@@ -39,7 +42,9 @@ export default function AdminDashboard(){
       const { data } = await api.get('/admin/users?role=doctor');
       setDoctors(Array.isArray(data?.items) ? data.items : []);
     }catch(e){
-      console.error('Failed to load doctors:', e);
+      if (import.meta.env.DEV) {
+        console.error('Failed to load doctors:', e);
+      }
       setDoctors([]);
     }
   }
@@ -48,7 +53,9 @@ export default function AdminDashboard(){
       const { data } = await api.get('/admin/users?role=user');
       setUsers(Array.isArray(data?.items) ? data.items : []);
     }catch(e){
-      console.error('Failed to load users:', e);
+      if (import.meta.env.DEV) {
+        console.error('Failed to load users:', e);
+      }
       setUsers([]);
     }
   }
@@ -70,13 +77,13 @@ export default function AdminDashboard(){
     if(!confirm(`Approve ${email}?`)) return;
     await api.post('/auth/approve-doctor', { email });
     await refresh('pending');
-    alert('Doctor approved and notified (email sent if configured).');
+    toast.success('Doctor approved and notified (email sent if configured).');
   }
 
   async function copyEmail(name){
     const text = buildApprovalCopy(name || 'Doctor');
     await navigator.clipboard.writeText(text);
-    alert('Approval email template copied.');
+    toast.success('Approval email template copied.');
   }
 
   async function deleteUser(id, label){

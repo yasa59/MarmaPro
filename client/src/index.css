@@ -27,14 +27,14 @@ html.light body {
   color: #1e293b;
 }
 
-/* Modern Glassmorphism */
+/* Modern Glassmorphism - Theme-aware */
 .glass {
-  @apply bg-white/5 border border-white/10 backdrop-blur-xl;
+  @apply backdrop-blur-xl bg-slate-900/5 dark:bg-white/5 border border-slate-900/10 dark:border-white/10;
   box-shadow: 0 8px 32px 0 rgba(15, 23, 42, 0.37);
 }
 
 .glass-strong {
-  @apply bg-white/10 border border-white/20 backdrop-blur-xl;
+  @apply backdrop-blur-xl bg-slate-900/10 dark:bg-white/10 border border-slate-900/20 dark:border-white/20;
   box-shadow: 0 8px 32px 0 rgba(15, 23, 42, 0.5);
 }
 
@@ -92,16 +92,15 @@ html.light body {
   @apply transform hover:scale-105 active:scale-95;
 }
 
-/* Card Styles */
+/* Card Styles - Theme-aware */
 .card {
-  @apply rounded-3xl p-6 backdrop-blur-xl bg-white/5 border border-white/10;
+  @apply rounded-3xl p-6 backdrop-blur-xl bg-slate-900/5 dark:bg-white/5 border border-slate-900/10 dark:border-white/10;
   box-shadow: 0 8px 32px 0 rgba(15, 23, 42, 0.3);
   transition: all 0.3s ease;
 }
 
 .card:hover {
-  background-color: rgb(255 255 255 / 0.1);
-  border-color: rgb(255 255 255 / 0.2);
+  @apply bg-slate-900/10 dark:bg-white/10 border-slate-900/20 dark:border-white/20;
   box-shadow: 0 12px 40px 0 rgba(15, 23, 42, 0.4);
   transform: translateY(-4px);
 }

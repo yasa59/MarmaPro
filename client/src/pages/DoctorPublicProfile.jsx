@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import api from "../api/axios";
 import RequestTherapyButton from "../components/RequestTherapyButton";
+import toast from "../components/Toast";
 
 export default function DoctorPublicProfile() {
   const { id } = useParams();
@@ -16,7 +17,7 @@ export default function DoctorPublicProfile() {
         const { data } = await api.get(`/doctors/${id}/profile`);
         setDoc(data);
       } catch (e) {
-        alert(e?.response?.data?.message || e.message);
+        toast.error(e?.response?.data?.message || e.message);
       } finally {
         setLoading(false);
       }
