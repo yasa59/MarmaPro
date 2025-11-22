@@ -58,8 +58,10 @@ router.post('/ai-detect', verifyToken, requireUser, upload.single('file'), async
     const absPath = req.file.path;
     const publicPath = `/uploads/photos/${path.basename(absPath)}`;
 
-    // Run Python CLI
-    const script = path.join(__dirname, '..', 'py', 'marma_detect_cli.py');
+    // Run Python CLI (try improved version first, fallback to original)
+    const improvedScript = path.join(__dirname, '..', 'py', 'marma_detect_improved.py');
+    const originalScript = path.join(__dirname, '..', 'py', 'marma_detect_cli.py');
+    const script = require('fs').existsSync(improvedScript) ? improvedScript : originalScript;
     const { stdout, stderr } = await runPython(script, [absPath]);
 
     if (stderr) console.log('PY STDERR:', stderr);
