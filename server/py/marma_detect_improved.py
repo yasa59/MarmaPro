@@ -1,10 +1,9 @@
 # server/py/marma_detect_improved.py
 # Improved marma point detection with better accuracy
-# pip install opencv-python numpy pillow scikit-image
+# pip install opencv-python numpy pillow
 
 import sys, os, json, cv2, numpy as np
 from PIL import Image
-from skimage import filters, morphology, measure
 
 def load_img(p):
     img = cv2.imread(p)
@@ -179,71 +178,95 @@ def calculate_marma_points_improved(bbox, landmarks, img_shape, is_left_foot=Fal
     return out
 
 def main():
-    if len(sys.argv) < 2:
-        print(json.dumps({"ok": False, "error": "usage: marma_detect_improved.py <imagePath>"}))
-        return
-    
-    in_path = sys.argv[1]
-    if not os.path.exists(in_path):
-        print(json.dumps({"ok": False, "error": "file not found"}))
-        return
-    
-    img = load_img(in_path)
-    h, w = img.shape[:2]
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if len(img.shape) == 3 else img
-    
-    # Improved foot detection
-    feet_data = improved_foot_segmentation(gray)
-    
-    if not feet_data:
-        print(json.dumps({"ok": False, "error": "No feet detected. Try better lighting or plain background."}))
-        return
-    
-    all_boxes = []
-    
-    for i, foot_data in enumerate(foot_data):
-        bbox = foot_data['bbox']
-        contour = foot_data['contour']
+    try:
+        if len(sys.argv) < 2:
+            print(json.dumps({"ok": False, "error": "usage: marma_detect_improved.py <imagePath>"}))
+            return
         
-        # Detect foot orientation
-        angle, is_rotated, centroid = detect_foot_orientation(contour, img.shape)
-        is_left_foot = (i == 0 and centroid[0] < w // 2) or (i == 1)
+        in_path = sys.argv[1]
+        if not os.path.exists(in_path):
+            print(json.dumps({"ok": False, "error": "file not found"}))
+            return
         
-        # Detect anatomical landmarks
-        landmarks = detect_anatomical_landmarks(img, bbox)
+        img = load_img(in_path)
+        if img is None:
+            print(json.dumps({"ok": False, "error": "Could not load image. Invalid file format."}))
+            return
         
-        # Calculate marma points with improved accuracy
-        boxes = calculate_marma_points_improved(bbox, landmarks, img.shape, is_left_foot)
-        all_boxes.extend(boxes)
-    
-    # Draw annotated image
-    out_path = os.path.splitext(in_path)[0] + "_annotated.jpg"
-    annotated_img = img.copy()
-    
-    for b in all_boxes:
-        x, y, ww, hh = b["x"], b["y"], b["width"], b["height"]
-        cx, cy = x + ww//2, y + hh//2
+        h, w = img.shape[:2]
+        if h == 0 or w == 0:
+            print(json.dumps({"ok": False, "error": "Invalid image dimensions"}))
+            return
         
-        # Draw box
-        cv2.rectangle(annotated_img, (x, y), (x+ww, y+hh), (0, 255, 255), 2)
-        # Draw center point
-        cv2.circle(annotated_img, (cx, cy), 5, (0, 0, 255), -1)
-        # Draw label with background
-        label = b["label"]
-        (text_w, text_h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-        cv2.rectangle(annotated_img, (x, y-text_h-8), (x+text_w+4, y), (0, 0, 0), -1)
-        cv2.putText(annotated_img, label, (x+2, y-4),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-    
-    cv2.imwrite(out_path, annotated_img)
-    
-    print(json.dumps({
-        "ok": True,
-        "boxes": all_boxes,
-        "annotated_path": out_path,
-        "feet_detected": len(feet_data)
-    }).strip())
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if len(img.shape) == 3 else img
+        
+        # Improved foot detection
+        feet_data = improved_foot_segmentation(gray)
+        
+        if not feet_data:
+            print(json.dumps({"ok": False, "error": "No feet detected. Try better lighting or plain background."}))
+            return
+        
+        all_boxes = []
+        
+        for i, foot_data in enumerate(feet_data):
+            try:
+                bbox = foot_data['bbox']
+                contour = foot_data['contour']
+                
+                # Detect foot orientation
+                angle, is_rotated, centroid = detect_foot_orientation(contour, img.shape)
+                is_left_foot = (i == 0 and centroid[0] < w // 2) or (i == 1)
+                
+                # Detect anatomical landmarks
+                landmarks = detect_anatomical_landmarks(img, bbox)
+                
+                # Calculate marma points with improved accuracy
+                boxes = calculate_marma_points_improved(bbox, landmarks, img.shape, is_left_foot)
+                all_boxes.extend(boxes)
+            except Exception as e:
+                # Skip this foot if there's an error, continue with others
+                continue
+        
+        if not all_boxes:
+            print(json.dumps({"ok": False, "error": "Could not detect marma points on detected feet."}))
+            return
+        
+        # Draw annotated image
+        out_path = os.path.splitext(in_path)[0] + "_annotated.jpg"
+        annotated_img = img.copy()
+        
+        for b in all_boxes:
+            x, y, ww, hh = b["x"], b["y"], b["width"], b["height"]
+            cx, cy = x + ww//2, y + hh//2
+            
+            # Draw box
+            cv2.rectangle(annotated_img, (x, y), (x+ww, y+hh), (0, 255, 255), 2)
+            # Draw center point
+            cv2.circle(annotated_img, (cx, cy), 5, (0, 0, 255), -1)
+            # Draw label with background
+            label = b["label"]
+            (text_w, text_h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+            cv2.rectangle(annotated_img, (x, y-text_h-8), (x+text_w+4, y), (0, 0, 0), -1)
+            cv2.putText(annotated_img, label, (x+2, y-4),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+        
+        cv2.imwrite(out_path, annotated_img)
+        
+        print(json.dumps({
+            "ok": True,
+            "boxes": all_boxes,
+            "annotated_path": out_path,
+            "feet_detected": len(feet_data)
+        }).strip())
+    except Exception as e:
+        print(json.dumps({
+            "ok": False,
+            "error": f"Detection error: {str(e)}"
+        }))
 
 if __name__ == "__main__":
     main()
+
+
 

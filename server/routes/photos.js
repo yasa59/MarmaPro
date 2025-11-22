@@ -61,19 +61,73 @@ router.post('/ai-detect', verifyToken, requireUser, upload.single('file'), async
     // Run Python CLI (try improved version first, fallback to original)
     const improvedScript = path.join(__dirname, '..', 'py', 'marma_detect_improved.py');
     const originalScript = path.join(__dirname, '..', 'py', 'marma_detect_cli.py');
-    const script = require('fs').existsSync(improvedScript) ? improvedScript : originalScript;
-    const { stdout, stderr } = await runPython(script, [absPath]);
-
-    if (stderr) console.log('PY STDERR:', stderr);
+    const fs = require('fs');
+    let script = improvedScript;
     let parsed;
-    try {
-      parsed = JSON.parse(stdout || '{}');
-    } catch {
-      parsed = { ok: false, error: 'bad json' };
+    
+    // Try improved script first
+    if (fs.existsSync(improvedScript)) {
+      try {
+        const { stdout, stderr } = await runPython(improvedScript, [absPath]);
+        if (stderr && process.env.NODE_ENV !== 'production') {
+          console.log('PY STDERR (improved):', stderr);
+        }
+        try {
+          parsed = JSON.parse(stdout || '{}');
+          if (parsed.ok) {
+            // Success with improved script
+          } else {
+            // Improved script failed, try original
+            script = originalScript;
+          }
+        } catch {
+          // JSON parse failed, try original
+          script = originalScript;
+        }
+      } catch (e) {
+        // Python execution failed, try original
+        if (process.env.NODE_ENV !== 'production') {
+          console.log('Improved script failed, trying original:', e.message);
+        }
+        script = originalScript;
+      }
+    } else {
+      script = originalScript;
+    }
+    
+    // Run original script if improved failed or doesn't exist
+    if (!parsed || !parsed.ok) {
+      if (!fs.existsSync(originalScript)) {
+        return res.status(500).json({ 
+          message: 'Detection failed', 
+          detail: 'Python detection script not found' 
+        });
+      }
+      
+      try {
+        const { stdout, stderr } = await runPython(originalScript, [absPath]);
+        if (stderr && process.env.NODE_ENV !== 'production') {
+          console.log('PY STDERR (original):', stderr);
+        }
+        try {
+          parsed = JSON.parse(stdout || '{}');
+        } catch {
+          parsed = { ok: false, error: 'Invalid response from detection script' };
+        }
+      } catch (e) {
+        console.error('Python script execution error:', e);
+        return res.status(500).json({ 
+          message: 'Detection failed', 
+          detail: `Script execution error: ${e.message}` 
+        });
+      }
     }
 
     if (!parsed.ok) {
-      return res.status(500).json({ message: 'Detection failed', detail: parsed.error || 'unknown' });
+      return res.status(500).json({ 
+        message: 'Detection failed', 
+        detail: parsed.error || 'Unknown error' 
+      });
     }
 
     // Python saves an annotated image next to the input; make public path
