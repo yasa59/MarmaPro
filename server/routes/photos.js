@@ -272,32 +272,44 @@ async function getPatientPhotos(req, res) {
     const me   = req.user.userId;
     const role = req.user.role;
     const userId = req.params.userId;
+    const mongoose = require('mongoose');
+    const oid = (v) => new mongoose.Types.ObjectId(String(v));
 
     if (role !== 'doctor') {
       return res.status(403).json({ message: 'Doctor only' });
     }
 
+    // Check connection - support both field name formats (userId/doctorId OR user/doctor)
+    // Also check for both 'accepted' and 'approved' status
     const conn = await Connection.findOne({
-      doctorId: me,
-      userId,
-      status: 'accepted',
+      $or: [
+        { doctorId: oid(me), userId: oid(userId) },
+        { doctor: oid(me), user: oid(userId) },
+      ],
+      status: { $in: ['accepted', 'approved'] }
     }).lean();
 
-    if (!conn) return res.status(403).json({ message: 'Not connected to this patient' });
+    if (!conn) {
+      return res.status(403).json({ message: 'Not connected to this patient' });
+    }
 
+    // Find photos for this user (Photo model uses userId field)
     const [items, total] = await Promise.all([
-      Photo.find({ userId }).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
-      Photo.countDocuments({ userId })
+      Photo.find({ userId: oid(userId) }).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+      Photo.countDocuments({ userId: oid(userId) })
     ]);
 
     // Format photos for frontend
     const formattedItems = items.map(p => ({
       _id: String(p._id),
+      id: String(p._id), // Also include id for compatibility
       url: p.filepath || p.annotated || null,
       filepath: p.filepath,
       annotated: p.annotated || null,
+      aligned: p.aligned || false,
       createdAt: p.createdAt,
       updatedAt: p.updatedAt,
+      meta: p.meta || {},
     }));
 
     res.json({
@@ -308,8 +320,10 @@ async function getPatientPhotos(req, res) {
       pages: Math.max(1, Math.ceil(total / limit)),
     });
   } catch (e) {
-    console.error('photos/by-user error', e);
-    res.status(500).json({ message: 'Server error' });
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('photos/by-user error:', e);
+    }
+    res.status(500).json({ message: 'Server error', detail: e.message });
   }
 }
 
