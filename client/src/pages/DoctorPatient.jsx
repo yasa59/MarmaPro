@@ -20,11 +20,27 @@ export default function DoctorPatient() {
     try {
       const [{ data: basic }, { data: ph }] = await Promise.all([
         api.get(`/patients/${userId}/basic`).catch(() => api.get(`/patients/${userId}`)),
-        api.get(`/photos/user/${userId}?limit=8`).catch(() => api.get(`/photos/by-user/${userId}?limit=8`))
+        api.get(`/photos/user/${userId}?limit=8`).catch((e) => {
+          if (import.meta.env.DEV) {
+            console.error("Failed to load photos:", e?.response?.data || e.message);
+          }
+          // Try alternative endpoint
+          return api.get(`/photos/by-user/${userId}?limit=8`).catch(() => ({ data: { photos: [], items: [] } }));
+        })
       ]);
       
       setInfo(basic?.user ? basic : { user: basic?.user || {} });
-      setPhotos(ph?.photos || ph?.items || []);
+      
+      // Handle photos response - support multiple response formats
+      const photoList = ph?.photos || ph?.items || [];
+      if (import.meta.env.DEV) {
+        if (photoList.length > 0) {
+          console.log("📸 Loaded photos:", photoList.length, "First photo:", photoList[0]);
+        } else {
+          console.log("📸 No photos found for patient:", userId);
+        }
+      }
+      setPhotos(photoList);
       
       // Fetch therapy sessions for this patient
       let sessionsCount = 0;
@@ -301,24 +317,39 @@ export default function DoctorPatient() {
           <div className="text-white/70 text-center py-8">No photos yet.</div>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {photos.map((p) => (
-              <motion.div
-                key={p._id}
-                whileHover={{ scale: 1.02 }}
-                className="relative group rounded-2xl overflow-hidden border border-white/10"
-                title={new Date(p.createdAt).toLocaleString()}
-              >
-                <img 
-                  src={p.url || p.filepath || p.annotated || p.raw} 
-                  alt="Foot photo" 
-                  className="w-full h-40 object-cover" 
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent opacity-0 group-hover:opacity-100 transition" />
-                <div className="absolute bottom-2 left-2 text-[11px] text-white/90 bg-black/40 px-2 py-0.5 rounded-full">
-                  {new Date(p.createdAt).toLocaleDateString()}
-                </div>
-              </motion.div>
-            ))}
+            {photos.map((p) => {
+              const photoUrl = p.annotated || p.filepath || p.url || p.raw;
+              return (
+                <motion.div
+                  key={p._id || p.id}
+                  whileHover={{ scale: 1.02 }}
+                  className="relative group rounded-2xl overflow-hidden border border-white/10 bg-white/5"
+                  title={new Date(p.createdAt).toLocaleString()}
+                >
+                  {photoUrl ? (
+                    <img 
+                      src={fileUrl(photoUrl)} 
+                      alt="Foot photo" 
+                      className="w-full h-40 object-cover" 
+                      onError={(e) => {
+                        // Fallback if image fails to load
+                        e.target.style.display = 'none';
+                        if (e.target.nextSibling) {
+                          e.target.nextSibling.style.display = 'flex';
+                        }
+                      }}
+                    />
+                  ) : null}
+                  <div className="w-full h-40 flex items-center justify-center bg-slate-800/50" style={{ display: photoUrl ? 'none' : 'flex' }}>
+                    <span className="text-white/60 text-sm">No Image</span>
+                  </div>
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent opacity-0 group-hover:opacity-100 transition" />
+                  <div className="absolute bottom-2 left-2 text-[11px] text-white/90 bg-black/40 px-2 py-0.5 rounded-full">
+                    {new Date(p.createdAt || p.updatedAt || Date.now()).toLocaleDateString()}
+                  </div>
+                </motion.div>
+              );
+            })}
           </div>
         )}
       </motion.div>

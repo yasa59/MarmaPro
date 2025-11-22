@@ -303,9 +303,10 @@ async function getPatientPhotos(req, res) {
     const formattedItems = items.map(p => ({
       _id: String(p._id),
       id: String(p._id), // Also include id for compatibility
-      url: p.filepath || p.annotated || null,
-      filepath: p.filepath,
+      url: p.annotated || p.filepath || null, // Prefer annotated version
+      filepath: p.filepath || null,
       annotated: p.annotated || null,
+      raw: p.filepath || null, // Legacy support
       aligned: p.aligned || false,
       createdAt: p.createdAt,
       updatedAt: p.updatedAt,
